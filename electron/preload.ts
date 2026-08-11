@@ -41,6 +41,7 @@ const api = {
     open: (input: unknown) => ipcRenderer.invoke('orders:open', input),
     get: (id: number) => ipcRenderer.invoke('orders:get', id),
     listOpen: () => ipcRenderer.invoke('orders:listOpen'),
+    list: (query: unknown) => ipcRenderer.invoke('orders:list', query),
     addItems: (orderId: number, lines: unknown) =>
       ipcRenderer.invoke('orders:addItems', orderId, lines),
     setItemQty: (orderItemId: number, qty: number) =>

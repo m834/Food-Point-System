@@ -8,6 +8,7 @@ import {
   IconDashboard,
   IconMenu,
   IconOrder,
+  IconReceipt,
   IconReports,
   IconSettings,
   IconTables,
@@ -20,6 +21,7 @@ export function Sidebar() {
   const links = [
     { href: '/', label: strings.nav.dashboard, icon: <IconDashboard /> },
     { href: '/order/', label: strings.nav.newOrder, icon: <IconOrder /> },
+    { href: '/orders/', label: strings.nav.orders, icon: <IconReceipt /> },
     // A pure takeaway counter never sees this.
     ...(tablesEnabled ? [{ href: '/tables/', label: strings.nav.tables, icon: <IconTables /> }] : []),
     { href: '/menu/', label: strings.nav.menu, icon: <IconMenu /> },
@@ -27,13 +29,20 @@ export function Sidebar() {
     { href: '/settings/', label: strings.nav.settings, icon: <IconSettings /> },
   ];
 
-  const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href.replace(/\/$/, ''));
+  // Compare whole path segments. A plain startsWith would light up "New order"
+  // whenever you were on /orders/, since /orders starts with /order.
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/';
+    const base = href.replace(/\/$/, '');
+    return pathname === base || pathname.startsWith(`${base}/`);
+  };
 
   return (
     <nav className="sidebar">
       <div className="sidebar-brand">
-        <div className="sidebar-brand-mark">🍽</div>
+        {/* Served from the exported UI, so one path works in dev and packaged.
+            Plain <img>: the Next.js optimizer needs a server, and there is none. */}
+        <img className="sidebar-brand-mark" src="/logo.png" alt="" width={34} height={34} />
         <div>
           <div className="sidebar-brand-name">{strings.app.name}</div>
           <div className="sidebar-brand-sub">{strings.app.by}</div>

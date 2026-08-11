@@ -102,11 +102,16 @@ export default function DashboardPage() {
           <Card pad={false}>
             <div className="card-head">
               <h2>{strings.dashboard.recent}</h2>
-              {summary.open_order_count ? (
-                <Link href="/order/" className="btn sm">
-                  {strings.order.resume}
+              <div className="row">
+                {summary.open_order_count ? (
+                  <Link href="/order/" className="btn sm">
+                    {strings.order.resume}
+                  </Link>
+                ) : null}
+                <Link href="/orders/" className="btn sm">
+                  All orders
                 </Link>
-              ) : null}
+              </div>
             </div>
 
             {summary.recent.length === 0 ? (

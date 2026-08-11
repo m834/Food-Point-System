@@ -157,15 +157,20 @@ textarea {
   padding: 4px 10px 18px;
 }
 
+/**
+ * The logo ships with an opaque off-white background, so dropping it straight
+ * onto the espresso nav would read as a pale square. Sitting it on a light
+ * rounded tile makes that background look deliberate instead — the tile and
+ * the artwork share the same off-white, so the seam disappears.
+ */
 .sidebar-brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: var(--accent);
-  display: grid;
-  place-items: center;
-  font-size: 16px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #faf7f3;
+  object-fit: cover;
   flex: 0 0 auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .sidebar-brand-name {
@@ -1089,6 +1094,12 @@ table.data tbody tr:hover {
   width: 100%;
   max-width: 540px;
   padding: 34px 34px 30px;
+}
+
+.activation-logo {
+  display: block;
+  border-radius: 16px;
+  margin-bottom: 16px;
 }
 
 .machine-id {

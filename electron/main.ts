@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, protocol, shell } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, protocol, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { getDb, closeDb } from './db/connection';
@@ -20,6 +20,9 @@ const DEV_URL = 'http://localhost:3000';
 
 /** The exported Next.js UI, served from disk over the app:// scheme. */
 const UI_ROOT = path.join(__dirname, '..', '..', 'out');
+
+/** Ships inside out/, so one path works in dev and in the installed app. */
+const ICON_PATH = path.join(UI_ROOT, 'logo.png');
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -99,6 +102,7 @@ function createWindow(): void {
     // than flashing white or the cool grey of the shop.
     backgroundColor: '#FAF7F3',
     title: 'Food Point',
+    icon: ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       // The renderer is untrusted: no Node, no database, no filesystem.
@@ -148,7 +152,19 @@ app.on('second-instance', () => {
   }
 });
 
+/**
+ * macOS ignores BrowserWindow.icon — the Dock reads the app bundle, which is
+ * Electron's own while running unpackaged. Setting it here puts the food
+ * point's mark in the Dock during development instead of the Electron logo.
+ */
+function applyDockIcon(): void {
+  if (process.platform !== 'darwin' || !app.dock) return;
+  const icon = nativeImage.createFromPath(ICON_PATH);
+  if (!icon.isEmpty()) app.dock.setIcon(icon);
+}
+
 app.whenReady().then(() => {
+  applyDockIcon();
   registerAppProtocol();
 
   // Open and upgrade the database before the UI can ask for anything.

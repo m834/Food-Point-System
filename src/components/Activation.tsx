@@ -52,6 +52,8 @@ export function Activation() {
   return (
     <div className="activation">
       <form className="activation-card" onSubmit={activate}>
+        {/* The first screen a customer ever sees — lead with the mark. */}
+        <img className="activation-logo" src="/logo.png" alt="" width={72} height={72} />
         <h1>{strings.activation.title}</h1>
         <p className="muted small" style={{ marginTop: 6 }}>
           {strings.activation.intro}

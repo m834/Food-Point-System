@@ -1,6 +1,7 @@
 import {
   handle,
   asArray,
+  asDate,
   asEnum,
   asId,
   asMoney,
@@ -13,6 +14,7 @@ import {
   fireToKitchen,
   getOrder,
   listOpenOrders,
+  listOrders,
   openOrder,
   setItemQty,
   settleOrder,
@@ -26,6 +28,7 @@ import type { NewOrderLine, OrderType, PaymentMethod } from '../../shared/types'
 
 const ORDER_TYPES = ['dine_in', 'takeaway', 'delivery'] as const satisfies readonly OrderType[];
 const PAYMENT_METHODS = ['cash', 'card'] as const satisfies readonly PaymentMethod[];
+const ORDER_STATUSES = ['settled', 'void', 'open'] as const;
 
 function parseLines(raw: unknown): NewOrderLine[] {
   const entries = asArray(raw, 'Order items');
@@ -63,6 +66,15 @@ export function registerOrderHandlers(): void {
   handle('orders:get', (_e, id) => getOrder(asId(id, 'Order')));
 
   handle('orders:listOpen', () => listOpenOrders());
+
+  handle('orders:list', (_e, input) => {
+    const raw = (input ?? {}) as Record<string, unknown>;
+    return listOrders(
+      asDate(raw.from, 'From date'),
+      asDate(raw.to, 'To date'),
+      raw.status ? asEnum(raw.status, ORDER_STATUSES, 'Status') : undefined,
+    );
+  });
 
   handle('orders:addItems', (_e, orderId, lines) =>
     addItems(asId(orderId, 'Order'), parseLines(lines)),

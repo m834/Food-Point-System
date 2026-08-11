@@ -95,6 +95,8 @@ export const api = {
     }) => call<Order>('orders', 'open', input),
     get: (id: number) => call<Order | null>('orders', 'get', id),
     listOpen: () => call<OpenOrderSummary[]>('orders', 'listOpen'),
+    list: (from: string, to: string, status?: 'settled' | 'void' | 'open') =>
+      call<Order[]>('orders', 'list', { from, to, status }),
     addItems: (orderId: number, lines: NewOrderLine[]) =>
       call<Order>('orders', 'addItems', orderId, lines),
     setItemQty: (orderItemId: number, qty: number) =>

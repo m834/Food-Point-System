@@ -122,6 +122,15 @@ export function IconClose({ size = 18 }: Props) {
   );
 }
 
+export function IconReceipt({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z" />
+      <path d="M9 7h6M9 11h6M9 15h4" />
+    </svg>
+  );
+}
+
 export function IconSearch({ size = 18 }: Props) {
   return (
     <svg {...base(size)}>

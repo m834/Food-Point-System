@@ -17,6 +17,18 @@ import { SETTING_KEYS, ORDER_TYPE_LABELS, type Order, type OrderItem } from '../
 
 const WIDTH = 42;
 
+/**
+ * Our mark on every bill that leaves a counter.
+ *
+ * Deliberately a constant rather than a setting: this is Code Hustlers'
+ * credit and sales line, not the food point's own contact details — those come
+ * from `business_name` / `business_phone` and print in the header. A shop owner
+ * must not be able to edit this away, and every installed copy should carry the
+ * same number.
+ */
+const DEVELOPER_CREDIT = 'Developed by Code Hustlers';
+const DEVELOPER_PHONE = '+92-332-7969297';
+
 function line(char = '-'): string {
   return char.repeat(WIDTH);
 }
@@ -116,6 +128,11 @@ export function buildCustomerBill(order: Order): string {
   }
   out.push('');
   out.push(centre('Thank you — please come again'));
+  out.push('');
+  // Last, under the thank-you, so it never competes with the total. Two lines
+  // because the credit and the number together overrun a 42-column roll.
+  out.push(centre(DEVELOPER_CREDIT));
+  out.push(centre(DEVELOPER_PHONE));
   out.push('');
 
   return out.join('\n');

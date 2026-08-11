@@ -97,13 +97,37 @@ export function listOpenOrders(): OpenOrderSummary[] {
     .all() as OpenOrderSummary[];
 }
 
-export function listSettledOrders(from: string, to: string): Order[] {
+/**
+ * The order history — what the counter reaches for when a customer comes back
+ * asking for their bill again.
+ *
+ * Dated by when the order CLOSED, not when it opened, so an order that ran
+ * past midnight files under the day it was actually paid — the same day it
+ * counts towards in every report.
+ */
+export function listOrders(
+  from: string,
+  to: string,
+  status?: 'settled' | 'void' | 'open',
+): Order[] {
+  const where = ["date(COALESCE(o.settled_at, o.voided_at, o.opened_at)) BETWEEN ? AND ?"];
+  const params: unknown[] = [from, to];
+
+  if (status) {
+    where.push('o.status = ?');
+    params.push(status);
+  } else {
+    // Open orders live on the order screen, not in the history.
+    where.push("o.status != 'open'");
+  }
+
   const rows = getDb()
     .prepare(
-      `${ORDER_SELECT} WHERE o.status = 'settled' AND date(o.settled_at) BETWEEN ? AND ?
-        ORDER BY o.settled_at DESC`,
+      `${ORDER_SELECT} WHERE ${where.join(' AND ')}
+        ORDER BY COALESCE(o.settled_at, o.voided_at, o.opened_at) DESC`,
     )
-    .all(from, to) as OrderRow[];
+    .all(...params) as OrderRow[];
+
   return rows.map(hydrate);
 }
 
