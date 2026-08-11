@@ -1,0 +1,74 @@
+{
+  "name": "code-hustlers-food-point",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Code Hustlers — Food-Point Billing & POS. Fully offline desktop application for takeaway counters, cafés, dhabas and small restaurants.",
+  "author": "Code Hustlers",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev:ui": "next dev",
+    "dev:main": "tsc -p electron/tsconfig.json --watch",
+    "dev": "npm run build:main && cross-env FOOD_DEV=1 electron .",
+    "build:ui": "next build",
+    "build:main": "tsc -p electron/tsconfig.json",
+    "build": "npm run build:ui && npm run build:main",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --win --x64",
+    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
+    "seed": "electron tools/seed-demo.js",
+    "keygen:init": "node tools/keygen/generate-keypair.js",
+    "keygen": "node tools/keygen/keygen.js",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "node-machine-id": "^1.1.12"
+  },
+  "optionalDependencies": {
+    "node-thermal-printer": "^4.4.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.3.0",
+    "electron-builder": "^25.1.8",
+    "next": "^15.1.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "com.codehustlers.foodpoint",
+    "productName": "Code Hustlers Food Point",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist-electron/**",
+      "out/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Food Point"
+    }
+  }
+}

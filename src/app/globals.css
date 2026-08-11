@@ -1,0 +1,1156 @@
+/* =====================================================================
+   Food Point — warm hospitality design system
+
+   Shop is cool navy (retail), pharmacy is clinical teal (health). A food
+   point should feel warm, appetising and inviting: a deep espresso sidebar
+   on a warm-paper workspace with a tomato accent.
+
+   Two rules that carry the whole palette:
+
+   1. The accent tomato and the danger crimson are BOTH warm reds, so they
+      are pitched deliberately apart. Bright tomato = go (Charge, Send to
+      kitchen). Deeper crimson = undo/stop (Void, delete). A cashier under
+      pressure must never confuse the two.
+   2. Green means money. It is never decoration.
+   ===================================================================== */
+
+:root {
+  /* Brand & structure */
+  --brand-espresso: #2b211c;
+  --brand-espresso-hover: #201813;
+
+  /* Primary actions: Send to kitchen, Charge */
+  --accent: #e24b32;
+  --accent-hover: #c43d28;
+
+  /* Surfaces — warm, not cool. The warm paper IS the identity. */
+  --bg: #faf7f3;
+  --surface: #ffffff;
+  --border: #ece4db;
+
+  /* Text */
+  --text: #241e1b;
+  --text-muted: #6e635c;
+
+  /* Semantic — reserved for meaning, never decoration */
+  --success: #2e9e5b;
+  --warning: #e0a400;
+  --danger: #b02a37;
+
+  /* Derived tints, so components never invent their own colours */
+  --accent-soft: #fdf0ed;
+  --accent-border: #f6cfc6;
+  --success-soft: #eaf6ee;
+  --danger-soft: #fbeef0;
+  --warning-soft: #fdf6e5;
+
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(43, 33, 28, 0.06);
+  --shadow-md: 0 4px 16px rgba(43, 33, 28, 0.08);
+  --shadow-lg: 0 12px 40px rgba(43, 33, 28, 0.18);
+
+  --sidebar-w: 232px;
+
+  /* Inter when the machine has it, then the platform's own UI face.
+     No webfont download — the app is offline and must never wait on one. */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Prices, totals and quantities align in columns and scan fast. */
+.num,
+input[type="number"],
+td.num,
+th.num {
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 22px;
+}
+h2 {
+  font-size: 17px;
+}
+h3 {
+  font-size: 15px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* A touchscreen under a hot pass does not want things sliding around. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------- *
+   App shell
+   ---------------------------------------------------------------- */
+
+.shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  background: var(--brand-espresso);
+  color: #f5ede7;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 12px;
+  gap: 4px;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px 18px;
+}
+
+.sidebar-brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  flex: 0 0 auto;
+}
+
+.sidebar-brand-name {
+  font-weight: 650;
+  font-size: 15px;
+  line-height: 1.15;
+}
+
+.sidebar-brand-sub {
+  font-size: 11px;
+  color: #b9a89d;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  color: #d8cabf;
+  text-decoration: none;
+  font-size: 14.5px;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+}
+
+.nav-link:hover {
+  background: var(--brand-espresso-hover);
+  color: #fff;
+}
+
+.nav-link.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.nav-link svg {
+  flex: 0 0 auto;
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  padding: 12px 12px 2px;
+  font-size: 11.5px;
+  color: #8d7d73;
+  border-top: 1px solid #3a2e27;
+}
+
+.workspace {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-head {
+  padding: 22px 28px 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workspace-head p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
+.workspace-body {
+  padding: 20px 28px 32px;
+  flex: 1;
+}
+
+/* ---------------------------------------------------------------- *
+   Cards & layout helpers
+   ---------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-pad {
+  padding: 18px 20px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.small {
+  font-size: 13px;
+}
+
+.tiny {
+  font-size: 11.5px;
+}
+
+/* ---------------------------------------------------------------- *
+   Stat tiles — the dashboard's headline numbers
+   ---------------------------------------------------------------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-label {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stat-value {
+  font-size: 30px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  margin-top: 6px;
+  line-height: 1.1;
+}
+
+.stat-note {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Money earned. The single most-looked-at number in the app. */
+.stat.profit {
+  background: var(--success-soft);
+  border-color: #bfe3cd;
+}
+
+.stat.profit .stat-value {
+  color: var(--success);
+}
+
+/* ---------------------------------------------------------------- *
+   Buttons
+   ---------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.06s;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  background: #f7f2ed;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* GO. Charge, Send to kitchen, Save. */
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* UNDO / STOP. Deliberately a deeper, quieter red than the accent. */
+.btn.danger {
+  background: var(--surface);
+  border-color: #e8c3c8;
+  color: var(--danger);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.btn.danger-solid {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.btn.danger-solid:hover:not(:disabled) {
+  background: #94222d;
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: #f2ebe4;
+}
+
+.btn.big {
+  min-height: 52px;
+  font-size: 16px;
+  padding: 12px 22px;
+}
+
+.btn.block {
+  width: 100%;
+}
+
+.btn.sm {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 13.5px;
+}
+
+/* ---------------------------------------------------------------- *
+   Forms
+   ---------------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-muted);
+}
+
+.input,
+select.input,
+textarea.input {
+  width: 100%;
+  padding: 10px 12px;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+textarea.input {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- *
+   Tables (data)
+   ---------------------------------------------------------------- */
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+table.data th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+table.data td {
+  padding: 11px 14px;
+  border-bottom: 1px solid #f4efe9;
+  vertical-align: middle;
+}
+
+table.data tr:last-child td {
+  border-bottom: none;
+}
+
+table.data tbody tr:hover {
+  background: #fdfbf9;
+}
+
+.right {
+  text-align: right;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* ---------------------------------------------------------------- *
+   Badges & pills
+   ---------------------------------------------------------------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badge.neutral {
+  background: #f4efe9;
+  color: var(--text-muted);
+}
+
+.badge.accent {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: var(--accent-border);
+}
+
+.badge.success {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: #bfe3cd;
+}
+
+.badge.warning {
+  background: var(--warning-soft);
+  color: #9a7100;
+  border-color: #f0dfae;
+}
+
+.badge.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: #e8c3c8;
+}
+
+/* ---------------------------------------------------------------- *
+   The order screen — two panels, the heart of the app
+   ---------------------------------------------------------------- */
+
+.order-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.order-left {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.order-toolbar {
+  padding: 16px 22px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* Category tabs across the top of the grid. */
+.cat-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.cat-tab {
+  padding: 8px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 38px;
+}
+
+.cat-tab:hover {
+  background: #f7f2ed;
+}
+
+.cat-tab.active {
+  background: var(--brand-espresso);
+  border-color: var(--brand-espresso);
+  color: #fff;
+}
+
+.item-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.item-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  text-align: left;
+  cursor: pointer;
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.12s, transform 0.06s, box-shadow 0.12s;
+}
+
+.item-card:hover {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-md);
+}
+
+.item-card:active {
+  transform: translateY(1px);
+}
+
+.item-card-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  line-height: 1.3;
+}
+
+.item-card-price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--accent-hover);
+}
+
+/* Sold out. Must not look tappable — because it is not. */
+.item-card.sold-out {
+  background: #f6f2ee;
+  color: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+  opacity: 0.72;
+}
+
+.item-card.sold-out:hover {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.item-card.sold-out .item-card-price {
+  color: var(--text-muted);
+}
+
+/* --- Right panel: the running order --- */
+
+.order-right {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Which order am I on? This must never be ambiguous. */
+.order-header {
+  padding: 16px 18px;
+  background: var(--brand-espresso);
+  color: #fff;
+}
+
+.order-header-no {
+  font-size: 13px;
+  color: #c3b3a8;
+  font-variant-numeric: tabular-nums;
+}
+
+.order-header-where {
+  font-size: 19px;
+  font-weight: 650;
+  margin-top: 2px;
+}
+
+.order-lines {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.order-line {
+  padding: 11px 18px;
+  border-bottom: 1px solid #f4efe9;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.order-line.fired {
+  background: #fcfaf8;
+}
+
+.order-line.voided {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.order-line-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.order-line-name {
+  font-weight: 550;
+  font-size: 14.5px;
+}
+
+.order-line-meta {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.order-line-total {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.qty-stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.qty-stepper button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.qty-stepper button:hover {
+  background: #f2ebe4;
+}
+
+.qty-stepper span {
+  min-width: 30px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.order-foot {
+  border-top: 1px solid var(--border);
+  padding: 14px 18px 16px;
+  background: var(--surface);
+}
+
+.order-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.order-total-label {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-weight: 550;
+}
+
+/* The biggest text on this screen, by design. */
+.order-total-value {
+  font-size: 32px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.order-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* Strip of other open orders — many run at once, switching is one tap. */
+.open-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  background: #fdfbf9;
+}
+
+.open-chip {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.open-chip:hover {
+  border-color: var(--accent-border);
+}
+
+.open-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+.open-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+/* ---------------------------------------------------------------- *
+   Tables floor
+   ---------------------------------------------------------------- */
+
+.floor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.table-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  cursor: pointer;
+  text-align: left;
+  min-height: 116px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.06s;
+}
+
+.table-card:hover {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-md);
+}
+
+.table-card:active {
+  transform: translateY(1px);
+}
+
+.table-card-name {
+  font-size: 20px;
+  font-weight: 680;
+}
+
+.table-card.occupied {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.table-card-total {
+  font-size: 19px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-hover);
+  margin-top: auto;
+}
+
+/* ---------------------------------------------------------------- *
+   Empty states — invite the next action, never a blank panel
+   ---------------------------------------------------------------- */
+
+.empty {
+  text-align: center;
+  padding: 44px 24px;
+  color: var(--text-muted);
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 5px;
+}
+
+.empty-note {
+  font-size: 13.5px;
+  max-width: 380px;
+  margin: 0 auto 16px;
+}
+
+/* ---------------------------------------------------------------- *
+   Modal
+   ---------------------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 30, 27, 0.42);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 60;
+}
+
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 480px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.modal.wide {
+  max-width: 720px;
+}
+
+.modal-head {
+  padding: 18px 22px 12px;
+}
+
+.modal-body {
+  padding: 4px 22px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-foot {
+  padding: 14px 22px 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* ---------------------------------------------------------------- *
+   Messages — plain, in the app's voice, never a code
+   ---------------------------------------------------------------- */
+
+.notice {
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  font-size: 13.5px;
+  border: 1px solid transparent;
+}
+
+.notice.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: #e8c3c8;
+}
+
+.notice.warn {
+  background: var(--warning-soft);
+  color: #8a6500;
+  border-color: #f0dfae;
+}
+
+.notice.ok {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: #bfe3cd;
+}
+
+.toast-wrap {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 80;
+}
+
+.toast {
+  background: var(--brand-espresso);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  max-width: 380px;
+}
+
+.toast.error {
+  background: var(--danger);
+}
+
+.toast.ok {
+  background: var(--success);
+}
+
+/* ---------------------------------------------------------------- *
+   Activation screen — the gate before anything else
+   ---------------------------------------------------------------- */
+
+.activation {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: var(--brand-espresso);
+}
+
+.activation-card {
+  background: var(--surface);
+  border-radius: 18px;
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 540px;
+  padding: 34px 34px 30px;
+}
+
+.machine-id {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  word-break: break-all;
+}
+
+.receipt-preview {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  overflow-x: auto;
+}
+
+/* ---------------------------------------------------------------- *
+   Bar chart — sales by hour, drawn in CSS so nothing is downloaded
+   ---------------------------------------------------------------- */
+
+.hour-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 150px;
+  padding-top: 8px;
+}
+
+.hour-bar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+}
+
+.hour-bar-fill {
+  width: 100%;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+}
+
+.hour-bar-label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1180px) {
+  .order-screen {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}

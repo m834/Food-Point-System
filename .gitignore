@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+dist-electron/
+release/
+next-env.d.ts
+*.tsbuildinfo
+
+# Founder-only signing material — must never be committed.
+# The private key mints licenses; it stays in the office.
+tools/keygen/private-key.pem
+tools/keygen/*.pem
+!tools/keygen/public-key.pem
+
+.DS_Store
+*.log
