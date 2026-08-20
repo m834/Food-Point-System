@@ -1,17 +1,20 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { useApp } from '@/components/AppContext';
 import { Empty, Field, Modal, Notice } from '@/components/ui';
+import { CancelModal } from '@/components/CancelModal';
 import { IconFire, IconSearch } from '@/components/icons';
 import { api } from '@/lib/api';
 import { strings } from '@/lib/strings';
 import { money, qty as fmtQty, since } from '@/lib/format';
 import {
   ORDER_TYPE_LABELS,
+  SETTING_KEYS,
   type DiningTable,
+  type Deal,
   type MenuCategory,
   type MenuItem,
   type ModifierGroup,
@@ -49,8 +52,11 @@ function OrderWorkspace() {
   const [openOrders, setOpenOrders] = useState<OpenOrderSummary[]>([]);
   const [order, setOrder] = useState<Order | null>(null);
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
-  const [activeCategory, setActiveCategory] = useState<number | null>(null);
+  // `'deals'` is a pseudo-category: deals are not a menu category row, but on
+  // this screen they behave like one.
+  const [activeCategory, setActiveCategory] = useState<number | 'deals' | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -62,14 +68,41 @@ function OrderWorkspace() {
     null,
   );
 
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * "/" jumps back to the search box from anywhere on the screen, and Escape
+   * clears it. A counter under pressure should never have to reach for the
+   * mouse to find the next dish.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== '/') return;
+      const target = event.target as HTMLElement | null;
+      // Don't steal the key from someone typing a note or a customer name.
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const refreshOpen = useCallback(async () => {
     setOpenOrders(await api.orders.listOpen());
   }, []);
 
   const loadMenu = useCallback(async () => {
-    const [cats, list] = await Promise.all([api.menu.listCategories(), api.menu.listItems()]);
+    // Only active deals reach the order screen; the admin screen shows the rest.
+    const [cats, list, dealList] = await Promise.all([
+      api.menu.listCategories(),
+      api.menu.listItems(),
+      api.deals.list(true),
+    ]);
     setCategories(cats);
     setItems(list);
+    setDeals(dealList);
   }, []);
 
   useEffect(() => {
@@ -104,6 +137,7 @@ function OrderWorkspace() {
   }, [loading, resumeOrderId, startTableId, selectOrder]);
 
   const visibleItems = useMemo(() => {
+    if (activeCategory === 'deals') return [];
     const term = search.trim().toLowerCase();
     return items.filter((item) => {
       if (activeCategory && item.category_id !== activeCategory) return false;
@@ -111,6 +145,17 @@ function OrderWorkspace() {
       return true;
     });
   }, [items, activeCategory, search]);
+
+  /**
+   * Deals lead the grid on "All" and own the Deals tab, because a combo is the
+   * thing a counter most wants to put in front of a customer. A category tab
+   * is about that category's food, so they drop out there.
+   */
+  const visibleDeals = useMemo(() => {
+    if (typeof activeCategory === 'number') return [];
+    const term = search.trim().toLowerCase();
+    return deals.filter((deal) => !term || deal.name.toLowerCase().includes(term));
+  }, [deals, activeCategory, search]);
 
   /** Tapping an item: straight onto the order, unless it has options to pick. */
   const tapItem = async (item: MenuItem) => {
@@ -129,6 +174,26 @@ function OrderWorkspace() {
       await addLine(item.id, 1, null, []);
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Could not add that item.', 'error');
+    }
+  };
+
+  /** One tap = the whole deal. The backend expands and prices it. */
+  const tapDeal = async (deal: Deal) => {
+    if (!order) {
+      setStartOpen(true);
+      return;
+    }
+    if (!deal.is_sellable) return;
+
+    setBusy(true);
+    try {
+      setOrder(await api.orders.addDeal(order.id, deal.id, 1));
+      await refreshOpen();
+      toast(strings.order.dealAdded, 'ok');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not add that deal.', 'error');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -185,6 +250,64 @@ function OrderWorkspace() {
   const unfired = order?.items.filter((item) => item.kitchen_status === 'new').length ?? 0;
   const liveLines = order?.items.filter((item) => item.kitchen_status !== 'void') ?? [];
 
+  /**
+   * What the running-order panel actually draws.
+   *
+   * A deal was written to the database as its component items, but the cashier
+   * sold ONE thing at ONE price and the customer will be quoted that price, so
+   * the panel has to say the same. Components are collapsed back into a single
+   * row whose total is the sum of their line_totals — which is exactly the
+   * combo price, by construction in the backend.
+   */
+  const orderEntries = useMemo(() => {
+    type Entry =
+      | { kind: 'line'; key: string; line: (typeof liveLines)[number] }
+      | {
+          kind: 'deal';
+          key: string;
+          group: number;
+          name: string;
+          total: number;
+          lines: typeof liveLines;
+          fired: boolean;
+          voided: boolean;
+        };
+
+    const entries: Entry[] = [];
+    const index = new Map<number, Extract<Entry, { kind: 'deal' }>>();
+
+    for (const line of order?.items ?? []) {
+      if (!line.deal_group) {
+        entries.push({ kind: 'line', key: `l${line.id}`, line });
+        continue;
+      }
+
+      const existing = index.get(line.deal_group);
+      if (existing) {
+        existing.total = Math.round((existing.total + line.line_total) * 100) / 100;
+        existing.lines.push(line);
+        existing.fired = existing.fired || line.kitchen_status === 'fired';
+        existing.voided = existing.voided && line.kitchen_status === 'void';
+        continue;
+      }
+
+      const entry: Extract<Entry, { kind: 'deal' }> = {
+        kind: 'deal',
+        key: `d${line.deal_group}`,
+        group: line.deal_group,
+        name: line.deal_name ?? 'Deal',
+        total: line.line_total,
+        lines: [line],
+        fired: line.kitchen_status === 'fired',
+        voided: line.kitchen_status === 'void',
+      };
+      index.set(line.deal_group, entry);
+      entries.push(entry);
+    }
+
+    return entries;
+  }, [order]);
+
   if (loading) return <div className="empty">{strings.common.loading}</div>;
 
   return (
@@ -193,17 +316,26 @@ function OrderWorkspace() {
       <section className="order-left">
         <div className="order-toolbar">
           <div className="row">
-            <div className="row" style={{ flex: 1, position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 12, color: 'var(--text-muted)', display: 'flex' }}>
-                <IconSearch size={17} />
+            {/* The big keyboard-first search bar. A barcode scanner is just a
+                keyboard, and a counter with a keyboard types the dish name —
+                so this is the largest control on the screen, focused on load
+                and reachable again from anywhere with "/". */}
+            <div className="order-search">
+              <span className="order-search-icon">
+                <IconSearch size={18} />
               </span>
               <input
+                ref={searchRef}
                 className="input"
-                style={{ paddingLeft: 38 }}
                 placeholder={strings.order.search}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') setSearch('');
+                }}
+                autoFocus
               />
+              {search ? null : <span className="order-search-hint">/</span>}
             </div>
             <button className="btn primary" onClick={() => setStartOpen(true)}>
               {strings.order.newOrder}
@@ -217,6 +349,14 @@ function OrderWorkspace() {
             >
               {strings.order.allItems}
             </button>
+            {deals.length ? (
+              <button
+                className={`cat-tab${activeCategory === 'deals' ? ' active' : ''}`}
+                onClick={() => setActiveCategory('deals')}
+              >
+                {strings.order.dealsTab}
+              </button>
+            ) : null}
             {categories.map((category) => (
               <button
                 key={category.id}
@@ -229,13 +369,40 @@ function OrderWorkspace() {
           </div>
         </div>
 
-        {visibleItems.length === 0 ? (
+        {visibleItems.length === 0 && visibleDeals.length === 0 ? (
           <Empty
             title={items.length ? 'Nothing matches that' : strings.menu.emptyTitle}
             note={items.length ? 'Try a different search or category.' : strings.menu.emptyNote}
           />
         ) : (
           <div className="item-grid">
+            {visibleDeals.map((deal) => (
+              <button
+                key={`deal-${deal.id}`}
+                className={`item-card deal-card${deal.is_sellable ? '' : ' sold-out'}`}
+                onClick={() => tapDeal(deal)}
+                disabled={!deal.is_sellable || busy}
+                title={deal.components.map((c) => `${c.qty} × ${c.item_name}`).join(' + ')}
+              >
+                <span className="deal-card-tag">{strings.deals.inDeal}</span>
+                <span className="item-card-name">{deal.name}</span>
+                <span className="deal-card-parts">
+                  {deal.components
+                    .map((c) => (c.qty === 1 ? c.item_name : `${c.qty} × ${c.item_name}`))
+                    .join(' + ')}
+                </span>
+                <span className="row-between">
+                  <span className="item-card-price">{money(deal.price)}</span>
+                  {deal.is_sellable ? (
+                    deal.menu_value > deal.price ? (
+                      <span className="deal-card-was">{money(deal.menu_value)}</span>
+                    ) : null
+                  ) : (
+                    <span className="tiny muted">{strings.deals.unavailable}</span>
+                  )}
+                </span>
+              </button>
+            ))}
             {visibleItems.map((item) => (
               <button
                 key={item.id}
@@ -300,48 +467,104 @@ function OrderWorkspace() {
               {liveLines.length === 0 ? (
                 <Empty title={strings.order.emptyTitle} note={strings.order.emptyNote} />
               ) : (
-                order.items.map((line) => (
+                orderEntries.map((entry) =>
+                  entry.kind === 'deal' ? (
+                    <div
+                      key={entry.key}
+                      className={`order-line deal-line${entry.fired ? ' fired' : ''}${entry.voided ? ' voided' : ''}`}
+                    >
+                      <div className="order-line-main">
+                        <div className="order-line-name">
+                          <span className="deal-line-tag">{strings.deals.inDeal}</span>
+                          {entry.name}
+                        </div>
+                        {/* The contents, so the counter can check the bundle
+                            without opening anything. */}
+                        <div className="order-line-meta">
+                          {entry.lines
+                            .map((part) => `${fmtQty(part.qty)} × ${part.item_name}`)
+                            .join(' + ')}
+                        </div>
+                        {entry.fired ? (
+                          <div className="order-line-meta">{strings.order.fired}</div>
+                        ) : null}
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="order-line-total">{money(entry.total)}</div>
+                        {!entry.voided ? (
+                          <button
+                            className="btn ghost sm"
+                            style={{ color: 'var(--danger)', marginTop: 4 }}
+                            /* Voiding any component voids the whole bundle in
+                               the backend — a half-combo is not a thing. */
+                            onClick={() =>
+                              setVoidTarget({
+                                kind: 'line',
+                                id: entry.lines[0].id,
+                                label: entry.name,
+                              })
+                            }
+                          >
+                            {strings.order.void}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
                   <div
-                    key={line.id}
-                    className={`order-line${line.kitchen_status === 'fired' || line.kitchen_status === 'served' ? ' fired' : ''}${line.kitchen_status === 'void' ? ' voided' : ''}`}
+                    key={entry.key}
+                    className={`order-line${entry.line.kitchen_status === 'fired' || entry.line.kitchen_status === 'served' ? ' fired' : ''}${entry.line.kitchen_status === 'void' ? ' voided' : ''}`}
                   >
                     <div className="order-line-main">
-                      <div className="order-line-name">{line.item_name}</div>
-                      {line.modifiers.length ? (
+                      <div className="order-line-name">{entry.line.item_name}</div>
+                      {entry.line.modifiers.length ? (
                         <div className="order-line-meta">
-                          {line.modifiers.map((mod) => mod.name).join(', ')}
+                          {entry.line.modifiers.map((mod) => mod.name).join(', ')}
                         </div>
                       ) : null}
-                      {line.notes ? <div className="order-line-meta">“{line.notes}”</div> : null}
-                      {line.kitchen_status === 'fired' ? (
+                      {entry.line.notes ? (
+                        <div className="order-line-meta">“{entry.line.notes}”</div>
+                      ) : null}
+                      {entry.line.kitchen_status === 'fired' ? (
                         <div className="order-line-meta">{strings.order.fired}</div>
                       ) : null}
 
-                      {line.kitchen_status === 'new' ? (
+                      {entry.line.kitchen_status === 'new' ? (
                         <div className="row" style={{ marginTop: 6 }}>
                           <span className="qty-stepper">
-                            <button onClick={() => changeQty(line.id, line.qty - 1)} disabled={busy}>
+                            <button
+                              onClick={() => changeQty(entry.line.id, entry.line.qty - 1)}
+                              disabled={busy}
+                            >
                               −
                             </button>
-                            <span>{fmtQty(line.qty)}</span>
-                            <button onClick={() => changeQty(line.id, line.qty + 1)} disabled={busy}>
+                            <span>{fmtQty(entry.line.qty)}</span>
+                            <button
+                              onClick={() => changeQty(entry.line.id, entry.line.qty + 1)}
+                              disabled={busy}
+                            >
                               +
                             </button>
                           </span>
                         </div>
                       ) : (
-                        <div className="order-line-meta">× {fmtQty(line.qty)}</div>
+                        <div className="order-line-meta">× {fmtQty(entry.line.qty)}</div>
                       )}
                     </div>
 
                     <div style={{ textAlign: 'right' }}>
-                      <div className="order-line-total">{money(line.line_total)}</div>
-                      {line.kitchen_status !== 'void' ? (
+                      <div className="order-line-total">{money(entry.line.line_total)}</div>
+                      {entry.line.kitchen_status !== 'void' ? (
                         <button
                           className="btn ghost sm"
                           style={{ color: 'var(--danger)', marginTop: 4 }}
                           onClick={() =>
-                            setVoidTarget({ kind: 'line', id: line.id, label: line.item_name })
+                            setVoidTarget({
+                              kind: 'line',
+                              id: entry.line.id,
+                              label: entry.line.item_name,
+                            })
                           }
                         >
                           {strings.order.void}
@@ -349,7 +572,8 @@ function OrderWorkspace() {
                       ) : null}
                     </div>
                   </div>
-                ))
+                  ),
+                )
               )}
             </div>
 
@@ -385,7 +609,7 @@ function OrderWorkspace() {
                   setVoidTarget({ kind: 'order', id: order.id, label: `order ${order.order_no}` })
                 }
               >
-                {strings.order.voidOrder}
+                {strings.cancel.cancelOrder}
               </button>
             </div>
           </>
@@ -429,16 +653,17 @@ function OrderWorkspace() {
         />
       ) : null}
 
-      {voidTarget ? (
-        <VoidModal
-          target={voidTarget}
+      {voidTarget && order ? (
+        <CancelModal
+          order={order}
+          line={voidTarget.kind === 'line' ? { id: voidTarget.id, label: voidTarget.label } : null}
           onClose={() => setVoidTarget(null)}
-          onVoided={async (updated) => {
+          onCancelled={async (updated) => {
             setVoidTarget(null);
-            // A voided order is gone from the floor; a voided line is not.
+            // A cancelled order leaves the floor; a cancelled line does not.
             setOrder(updated.status === 'void' ? null : updated);
             await refreshOpen();
-            toast('Voided.', 'ok');
+            toast(strings.cancel.done, 'ok');
           }}
         />
       ) : null}
@@ -667,6 +892,11 @@ function ModifierModal({
  * Charge — the money step
  * ------------------------------------------------------------------ */
 
+/** Same rounding the backend applies, so the preview cannot drift by a paisa. */
+function round2(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 function ChargeModal({
   order,
   onClose,
@@ -676,15 +906,25 @@ function ChargeModal({
   onClose: () => void;
   onSettled: (message: string) => void | Promise<void>;
 }) {
+  const { settings } = useApp();
   const [discount, setDiscount] = useState('0');
   const [method, setMethod] = useState<'cash' | 'card'>('cash');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const discountValue = Math.max(0, Number(discount) || 0);
-  // A preview only. The backend recomputes everything — including the service
-  // charge, which comes from settings and never from this screen.
-  const previewTotal = Math.max(0, order.subtotal - discountValue);
+  // Clamped the same way the backend clamps it, so the figure on the button is
+  // the figure the customer is asked for. The backend still recomputes and
+  // remains the authority — this only has to agree with it, not replace it.
+  const discountValue = Math.min(Math.max(0, Number(discount) || 0), order.subtotal);
+  const chargePercent = Math.min(
+    Math.max(Number(settings[SETTING_KEYS.serviceChargePercent]) || 0, 0),
+    100,
+  );
+  // Service charge is worked out on the gross subtotal, before the discount —
+  // matching settleOrder(), or the counter would quote a number the bill
+  // contradicts.
+  const serviceCharge = round2((order.subtotal * chargePercent) / 100);
+  const previewTotal = Math.max(0, round2(order.subtotal - discountValue + serviceCharge));
 
   const settle = async () => {
     setBusy(true);
@@ -749,88 +989,26 @@ function ChargeModal({
         </div>
       </Field>
 
+      {discountValue > 0 ? (
+        <div className="row-between">
+          <span className="muted">{strings.order.discount}</span>
+          <span className="num">−{money(discountValue)}</span>
+        </div>
+      ) : null}
+
+      {serviceCharge > 0 ? (
+        <div className="row-between">
+          <span className="muted">
+            {strings.order.serviceCharge} ({chargePercent}%)
+          </span>
+          <span className="num">{money(serviceCharge)}</span>
+        </div>
+      ) : null}
+
       <div className="row-between" style={{ fontSize: 20, fontWeight: 700 }}>
         <span>{strings.order.total}</span>
         <span className="num">{money(previewTotal)}</span>
       </div>
-      <div className="tiny muted">
-        Any service charge set in Settings is added when the bill is worked out.
-      </div>
-
-      {error ? <Notice>{error}</Notice> : null}
-    </Modal>
-  );
-}
-
-/* ------------------------------------------------------------------ *
- * Void — reason always, PIN when the owner set one
- * ------------------------------------------------------------------ */
-
-function VoidModal({
-  target,
-  onClose,
-  onVoided,
-}: {
-  target: { kind: 'line' | 'order'; id: number; label: string };
-  onClose: () => void;
-  onVoided: (order: Order) => void | Promise<void>;
-}) {
-  const [reason, setReason] = useState('');
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const submit = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const updated =
-        target.kind === 'line'
-          ? await api.orders.voidItem(target.id, reason, pin || undefined)
-          : await api.orders.voidOrder(target.id, reason, pin || undefined);
-      await onVoided(updated);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not void that.');
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal
-      title={`${strings.order.void} — ${target.label}`}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn" onClick={onClose} disabled={busy}>
-            {strings.common.cancel}
-          </button>
-          <button className="btn danger-solid" onClick={submit} disabled={busy || !reason.trim()}>
-            {strings.order.void}
-          </button>
-        </>
-      }
-    >
-      <Field label={strings.order.voidReason}>
-        <input
-          className="input"
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          placeholder={strings.order.voidReasonPlaceholder}
-          autoFocus
-        />
-      </Field>
-
-      {/* Always offered: the backend decides whether a PIN is actually needed,
-          and says so plainly if one is missing. */}
-      <Field label={`${strings.order.managerPin} (${strings.order.optional})`}>
-        <input
-          className="input"
-          type="password"
-          inputMode="numeric"
-          value={pin}
-          onChange={(event) => setPin(event.target.value)}
-        />
-      </Field>
 
       {error ? <Notice>{error}</Notice> : null}
     </Modal>

@@ -31,6 +31,15 @@ const api = {
     remove: (id: number) => ipcRenderer.invoke('modifiers:remove', id),
   },
 
+  deals: {
+    list: (activeOnly?: boolean) => ipcRenderer.invoke('deals:list', activeOnly),
+    get: (id: number) => ipcRenderer.invoke('deals:get', id),
+    save: (deal: unknown) => ipcRenderer.invoke('deals:save', deal),
+    remove: (id: number) => ipcRenderer.invoke('deals:remove', id),
+    setActive: (id: number, active: boolean) =>
+      ipcRenderer.invoke('deals:setActive', id, active),
+  },
+
   tables: {
     list: () => ipcRenderer.invoke('tables:list'),
     save: (table: unknown) => ipcRenderer.invoke('tables:save', table),
@@ -44,18 +53,29 @@ const api = {
     list: (query: unknown) => ipcRenderer.invoke('orders:list', query),
     addItems: (orderId: number, lines: unknown) =>
       ipcRenderer.invoke('orders:addItems', orderId, lines),
+    addDeal: (orderId: number, dealId: number, quantity?: number) =>
+      ipcRenderer.invoke('orders:addDeal', orderId, dealId, quantity),
     setItemQty: (orderItemId: number, qty: number) =>
       ipcRenderer.invoke('orders:setItemQty', orderItemId, qty),
     fire: (orderId: number) => ipcRenderer.invoke('orders:fire', orderId),
     settle: (orderId: number, input: unknown) =>
       ipcRenderer.invoke('orders:settle', orderId, input),
     reprintBill: (orderId: number) => ipcRenderer.invoke('orders:reprintBill', orderId),
-    voidItem: (orderItemId: number, reason: string, pin?: string) =>
-      ipcRenderer.invoke('orders:voidItem', orderItemId, reason, pin),
-    voidOrder: (orderId: number, reason: string, pin?: string) =>
-      ipcRenderer.invoke('orders:voidOrder', orderId, reason, pin),
+    voidItem: (orderItemId: number, reason: string, note?: string | null) =>
+      ipcRenderer.invoke('orders:voidItem', orderItemId, reason, note),
+    voidOrder: (orderId: number, reason: string, note?: string | null, pin?: string) =>
+      ipcRenderer.invoke('orders:voidOrder', orderId, reason, note, pin),
     previewBill: (orderId: number) => ipcRenderer.invoke('orders:previewBill', orderId),
     previewTicket: (orderId: number) => ipcRenderer.invoke('orders:previewTicket', orderId),
+  },
+
+  staff: {
+    list: (activeOnly?: boolean) => ipcRenderer.invoke('staff:list', activeOnly),
+    save: (staff: unknown) => ipcRenderer.invoke('staff:save', staff),
+    remove: (id: number) => ipcRenderer.invoke('staff:remove', id),
+    signIn: (id: number, pin: string) => ipcRenderer.invoke('staff:signIn', id, pin),
+    signOut: () => ipcRenderer.invoke('staff:signOut'),
+    current: () => ipcRenderer.invoke('staff:current'),
   },
 
   reports: {
@@ -66,6 +86,8 @@ const api = {
       ipcRenderer.invoke('reports:bestSellers', { from, to, limit }),
     byHour: (from: string, to: string) => ipcRenderer.invoke('reports:byHour', { from, to }),
     voids: (from: string, to: string) => ipcRenderer.invoke('reports:voids', { from, to }),
+    cancellations: (from: string, to: string) =>
+      ipcRenderer.invoke('reports:cancellations', { from, to }),
   },
 
   license: {

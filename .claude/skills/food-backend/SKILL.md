@@ -20,6 +20,7 @@ Model:
 - **`order_items`** — snapshot `item_name`/`cost_price`/`sale_price`, `qty`, `notes`, plus **`kitchen_status`** (new/fired/served/void), **`fired_at`**, and `void_reason`/`voided_at`.
 - **`order_item_modifiers`** — snapshot chosen modifiers per line.
 - **`tables`** — dine-in only; **no stored status column**, see below.
+- **`deals`** / **`deal_items`** — a named bundle of menu items at ONE fixed combo price. See the section below; the model is not obvious and getting it wrong corrupts profit.
 
 ## Order lifecycle operations
 
@@ -63,6 +64,29 @@ const settleOrder = db.transaction((orderId, opts) => {
 - **Firing ≠ settling.** The kitchen ticket carries **no prices**; the customer bill carries money. They are two different print paths.
 - **`is_available` is honoured on the server too** — reject adding a sold-out item, don't rely on the UI alone.
 
+## Deals — one price, but stored as the real food
+
+A **deal** is a named bundle sold at one fixed combo price (Burger + Fries + Drink = Rs 550). The rule that drives the whole design:
+
+> **A deal is stored as its component items, never as a single opaque product.**
+
+This app has no stock table (a food point cooks to order; recipe costing is deferred). So "the underlying items must still be deducted" means: **every consumer of an order line must still see the real food.** Storing components rather than a blob is what keeps profit honest (COGS sums the true per-item `cost_price`), best-sellers true (a deal's burgers count as burgers sold), and the kitchen ticket correct (it lists what to actually cook).
+
+`addDeal(orderId, dealId, qty)` writes one `order_items` row per component, all stamped with the same **`deal_group`** (the id of the group's first row — unique, indexed, no counter needed). The combo price is then **spread across those rows** so their `line_total`s sum to exactly the deal price. Nothing downstream needs to know a deal was involved: `recomputeSubtotal`, `settleOrder` and every report keep summing `line_total` exactly as before.
+
+**The split, precisely:**
+- Weighted by each component's **menu value** (`qty × sale_price`), not evenly — the cheap drink must not absorb the same discount as the expensive burger.
+- Every share but the last is rounded; **the last takes the remainder**. Rounding each share independently drifts by a paisa and leaves a bill whose own lines do not add up to its total.
+- **`cost_price` is never touched.** It stays the real food cost, because that is what profit is computed from. A discount reduces revenue; it does not make the food cheaper to cook.
+- All components priced at zero → fall back to an even split rather than dividing by zero.
+
+**Rules that are not optional:**
+- **A sold-out component takes the whole deal off sale.** Half a combo is not the combo the customer was promised — reject it with a message naming the missing item.
+- **Voiding any component voids the whole `deal_group`**, or the bill keeps a partial combo whose lines no longer sum to the quoted price.
+- **A component's quantity cannot be edited on its own** — refuse it and say why. Void and re-add.
+- **The customer bill collapses a `deal_group` into ONE line** at the combo price, contents listed beneath without prices. The **kitchen ticket does the opposite**: it lists the real dishes, banner-lined with the deal name so the pass plates them together.
+- `deal_name` is **snapshotted onto the row** like `item_name`, so deleting or renaming a deal never rewrites a bill already printed.
+
 ## Two print formats (extends offline-desktop-backend printing)
 
 Same ESC/POS mechanism, two builders:
@@ -87,12 +111,14 @@ One query gives both the status and the running total the floor screen needs. A 
 ## IPC additions
 
 Extend the preload surface (still named and minimal):
-`menu.{listCategories,listItems,saveItem,setAvailable,saveCategory}`, `modifiers.{groups,save}`, `orders.{open,addItems,fire,settle,voidItem,voidOrder,listOpen,get,reprintBill}`, `tables.list` (returns status + running total from the join above). Reports/license/backup stay as `offline-desktop-backend` defines them, reading settled `orders`.
+`menu.{listCategories,listItems,saveItem,setAvailable,saveCategory}`, `modifiers.{groups,save}`, `deals.{list,get,save,remove,setActive}`, `orders.{open,addItems,addDeal,fire,settle,voidItem,voidOrder,listOpen,get,reprintBill}`, `tables.list` (returns status + running total from the join above). Reports/license/backup stay as `offline-desktop-backend` defines them, reading settled `orders`.
 
 ## Do not
 
 - Do not add a separate `invoices` table — a settled order is the bill.
-- Do not track per-ingredient stock or deduct raw ingredients per sale (recipe costing is deferred; use estimated per-item food cost).
+- Do not track per-ingredient stock or deduct raw ingredients per sale (recipe costing is deferred; use estimated per-item food cost). **Deals are not an exception** — they record component menu items, not ingredients.
+- Do not store a deal as one opaque line with a blended cost: it blinds the best-seller report and the kitchen ticket.
+- Do not let a deal's component lines sum to anything other than the exact combo price.
 - Do not print prices on the kitchen ticket.
 - Do not assume one active order — always operate on an explicit `orderId`.
 - Do not compute profit as the sum of per-line margins, and do not take the service-charge % or the result of a PIN check from the renderer.

@@ -1,9 +1,11 @@
 import { getDb } from '../connection';
 import { money, nowIso, orderNoPrefix } from '../money';
 import { getItem, getModifiersByIds } from './menu';
+import { buildDealLines } from './deals';
 import { openOrderIdForTable } from './tables';
 import { serviceChargePercent } from './settings';
 import type {
+  CancelReasonCode,
   NewOrderLine,
   OpenOrderSummary,
   Order,
@@ -12,6 +14,7 @@ import type {
   OrderType,
   PaymentMethod,
 } from '../../../shared/types';
+import { CANCEL_REASON_LABELS } from '../../../shared/types';
 
 /**
  * Orders — the one idea the whole food app is built around.
@@ -33,9 +36,12 @@ const ORDER_SELECT = `
   SELECT o.id, o.order_no, o.type, o.table_id, t.name AS table_name, o.status,
          o.opened_at, o.settled_at, o.customer_name, o.customer_phone,
          o.subtotal, o.discount, o.service_charge, o.total, o.profit,
-         o.payment_method, o.void_reason, o.voided_at
+         o.payment_method, o.void_reason, o.voided_at,
+         o.void_reason_code, o.void_note, o.voided_by_staff_id,
+         o.voided_was_paid, s.name AS voided_by_staff_name
   FROM orders o
   LEFT JOIN tables t ON t.id = o.table_id
+  LEFT JOIN staff s ON s.id = o.voided_by_staff_id
 `;
 
 type OrderRow = Omit<Order, 'items'>;
@@ -46,7 +52,9 @@ function hydrate(row: OrderRow): Order {
   const items = db
     .prepare(
       `SELECT id, order_id, menu_item_id, item_name, qty, cost_price, sale_price,
-              line_total, notes, kitchen_status, fired_at, void_reason, voided_at
+              line_total, notes, kitchen_status, fired_at, void_reason, voided_at,
+              void_reason_code, void_note, voided_by_staff_id,
+              deal_id, deal_group, deal_name
          FROM order_items WHERE order_id = ? ORDER BY id`,
     )
     .all(row.id) as Array<Omit<OrderItem, 'modifiers'>>;
@@ -261,6 +269,64 @@ export function addItems(orderId: number, lines: NewOrderLine[]): Order {
 }
 
 /**
+ * Add a whole deal in one action.
+ *
+ * The cashier taps once; the order gains one line per component item, all
+ * stamped with the same `deal_group`. The bill collapses that group back into
+ * a single line at the combo price, but the kitchen ticket, the best-seller
+ * report and the profit calculation all keep seeing real food with real costs.
+ *
+ * `deal_group` is the id of the group's first row, which is unique, already
+ * indexed, and needs no counter of its own. Adding the same deal twice
+ * therefore produces two independent groups.
+ */
+export function addDeal(orderId: number, dealId: number, quantity: number): Order {
+  const db = getDb();
+
+  const run = db.transaction(() => {
+    const order = getOrder(orderId);
+    if (!order) throw new Error('That order no longer exists.');
+    if (order.status !== 'open') throw new Error('This order is already closed.');
+
+    // Throws with a cashier-readable reason when the deal is off, empty, or
+    // has a sold-out component.
+    const lines = buildDealLines(dealId, quantity);
+
+    const insert = db.prepare(
+      `INSERT INTO order_items
+         (order_id, menu_item_id, item_name, qty, cost_price, sale_price,
+          line_total, kitchen_status, deal_id, deal_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`,
+    );
+
+    const ids: number[] = [];
+    for (const line of lines) {
+      const info = insert.run(
+        orderId,
+        line.menu_item_id,
+        line.item_name,
+        line.qty,
+        line.cost_price,
+        line.sale_price,
+        line.line_total,
+        line.deal_id,
+        line.deal_name,
+      );
+      ids.push(Number(info.lastInsertRowid));
+    }
+
+    const group = ids[0];
+    const stamp = db.prepare('UPDATE order_items SET deal_group = ? WHERE id = ?');
+    for (const id of ids) stamp.run(group, id);
+
+    recomputeSubtotal(orderId);
+    return orderId;
+  });
+
+  return getOrder(run())!;
+}
+
+/**
  * Change the quantity of a line that has NOT gone to the kitchen yet.
  *
  * Only `new` lines can move. Once a line is fired the kitchen is already
@@ -275,18 +341,32 @@ export function setItemQty(orderItemId: number, qty: number): Order {
   const run = db.transaction(() => {
     const line = db
       .prepare(
-        `SELECT oi.order_id, oi.kitchen_status, oi.qty, oi.line_total, o.status AS order_status
+        `SELECT oi.order_id, oi.kitchen_status, oi.qty, oi.line_total, oi.deal_group,
+                o.status AS order_status
            FROM order_items oi JOIN orders o ON o.id = oi.order_id
           WHERE oi.id = ?`,
       )
       .get(orderItemId) as
-      | { order_id: number; kitchen_status: string; qty: number; line_total: number; order_status: string }
+      | {
+          order_id: number;
+          kitchen_status: string;
+          qty: number;
+          line_total: number;
+          order_status: string;
+          deal_group: number | null;
+        }
       | undefined;
 
     if (!line) throw new Error('That line is no longer on the order.');
     if (line.order_status !== 'open') throw new Error('This order is already closed.');
     if (line.kitchen_status !== 'new') {
       throw new Error('This item has already gone to the kitchen — void it instead.');
+    }
+    // A deal is sold as a bundle at one price. Letting a single component's
+    // quantity move would leave the parts no longer adding up to the combo
+    // price the customer was quoted. Remove the whole deal and re-add it.
+    if (line.deal_group) {
+      throw new Error('This item is part of a deal — void the deal instead.');
     }
 
     if (qty <= 0) {
@@ -427,22 +507,59 @@ export function settleOrder(orderId: number, input: SettleInput): Order {
  * The manager-PIN check happens in the IPC layer before either of these is
  * called, in the main process.
  */
-export function voidItem(orderItemId: number, reason: string): Order {
+export interface CancelInput {
+  reason_code: CancelReasonCode;
+  /** The typed detail behind "Other"; optional for the fixed reasons. */
+  note?: string | null;
+  /** Resolved in the main process from the signed-in session, never the UI. */
+  staff_id: number | null;
+}
+
+/** The human-readable line stored alongside the code, for the printed record. */
+function reasonText(input: CancelInput): string {
+  const label = CANCEL_REASON_LABELS[input.reason_code];
+  const note = (input.note ?? '').trim();
+  return note ? `${label} — ${note}` : label;
+}
+
+/**
+ * Cancel one line off an open order.
+ *
+ * Only reachable while the order is still open, so no money has been taken and
+ * no manager PIN is involved — that gate belongs on paid orders (see
+ * `voidOrder`). The reason, the time and the staff member are still recorded,
+ * because a counter hand quietly removing items from a running bill before it
+ * is settled is its own way of skimming.
+ */
+export function voidItem(orderItemId: number, input: CancelInput): Order {
   const db = getDb();
 
   const run = db.transaction(() => {
     const line = db
-      .prepare('SELECT order_id, kitchen_status FROM order_items WHERE id = ?')
-      .get(orderItemId) as { order_id: number; kitchen_status: string } | undefined;
+      .prepare('SELECT order_id, kitchen_status, deal_group FROM order_items WHERE id = ?')
+      .get(orderItemId) as
+      | { order_id: number; kitchen_status: string; deal_group: number | null }
+      | undefined;
     if (!line) throw new Error('That line is no longer on the order.');
-    if (line.kitchen_status === 'void') throw new Error('That line is already voided.');
+    if (line.kitchen_status === 'void') throw new Error('That line is already cancelled.');
 
     const order = getOrder(line.order_id);
     if (order?.status !== 'open') throw new Error('This order is already closed.');
 
+    const at = nowIso();
+    const text = reasonText(input);
+
+    // Cancelling one component of a deal would leave a partial combo on the
+    // bill whose lines no longer sum to the price quoted. A deal goes as a unit.
+    const where = line.deal_group ? 'deal_group = ?' : 'id = ?';
+    const target = line.deal_group ?? orderItemId;
+
     db.prepare(
-      "UPDATE order_items SET kitchen_status = 'void', void_reason = ?, voided_at = ? WHERE id = ?",
-    ).run(reason, nowIso(), orderItemId);
+      `UPDATE order_items
+          SET kitchen_status = 'void', void_reason = ?, voided_at = ?,
+              void_reason_code = ?, void_note = ?, voided_by_staff_id = ?
+        WHERE ${where} AND kitchen_status != 'void'`,
+    ).run(text, at, input.reason_code, input.note || null, input.staff_id, target);
 
     recomputeSubtotal(line.order_id);
     return line.order_id;
@@ -451,28 +568,61 @@ export function voidItem(orderItemId: number, reason: string): Order {
   return getOrder(run())!;
 }
 
-export function voidOrder(orderId: number, reason: string): Order {
+/**
+ * Cancel a whole order — the action this app is most careful about.
+ *
+ * A cancellation is NEVER a delete. The order row stays exactly where it is,
+ * with its items, its amount and its timestamps intact, and gains the answers
+ * to who, when, why, and whether the money had already been taken. Nothing
+ * about this is reversible from the counter and nothing about it is hidden.
+ *
+ * Two paths, deliberately different:
+ *
+ *  - **Open order** — nothing has been taken yet. A reason and a name; no
+ *    manager needed. This is the honest everyday case (wrong order, customer
+ *    walked out), and demanding a manager for every mis-tap would only teach
+ *    the counter to work around the app.
+ *
+ *  - **Settled order** — the money is already in the till. This is the exact
+ *    move a dishonest counter hand makes to pocket cash, so it requires the
+ *    manager PIN, checked in the main process before this function is reached.
+ *    Cancelling it drops the order out of `status = 'settled'`, so the day's
+ *    takings fall by that amount — which is precisely what makes the theft
+ *    visible instead of invisible.
+ */
+export function voidOrder(orderId: number, input: CancelInput): Order {
   const db = getDb();
 
   const run = db.transaction(() => {
     const order = getOrder(orderId);
     if (!order) throw new Error('That order no longer exists.');
-    if (order.status === 'settled') throw new Error('A paid order cannot be voided.');
-    if (order.status === 'void') throw new Error('This order is already voided.');
+    if (order.status === 'void') throw new Error('This order is already cancelled.');
 
+    const wasPaid = order.status === 'settled';
     const at = nowIso();
-    db.prepare("UPDATE orders SET status = 'void', void_reason = ?, voided_at = ? WHERE id = ?").run(
-      reason,
-      at,
-      orderId,
-    );
+    const text = reasonText(input);
+
     db.prepare(
-      `UPDATE order_items SET kitchen_status = 'void', void_reason = ?, voided_at = ?
+      `UPDATE orders
+          SET status = 'void', void_reason = ?, voided_at = ?,
+              void_reason_code = ?, void_note = ?, voided_by_staff_id = ?,
+              voided_was_paid = ?
+        WHERE id = ?`,
+    ).run(text, at, input.reason_code, input.note || null, input.staff_id, wasPaid ? 1 : 0, orderId);
+
+    // settled_at, total and profit are deliberately left untouched. The order
+    // has dropped out of every 'settled' report already, and those columns are
+    // the record of what was actually taken before it was cancelled.
+    db.prepare(
+      `UPDATE order_items
+          SET kitchen_status = 'void', void_reason = ?, voided_at = ?,
+              void_reason_code = ?, void_note = ?, voided_by_staff_id = ?
         WHERE order_id = ? AND kitchen_status != 'void'`,
-    ).run(reason, at, orderId);
+    ).run(text, at, input.reason_code, input.note || null, input.staff_id, orderId);
 
     return orderId;
   });
 
   return getOrder(run())!;
 }
+

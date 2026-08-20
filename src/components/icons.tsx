@@ -139,3 +139,24 @@ export function IconSearch({ size = 18 }: Props) {
     </svg>
   );
 }
+
+/** Deals — a tagged bundle. Distinct at a glance from the plain menu list. */
+export function IconDeal({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8A2 2 0 0 1 4.8 2.8H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z" />
+      <circle cx="7.5" cy="7.5" r="1.3" />
+    </svg>
+  );
+}
+
+/** Cancellations — a struck-through receipt. Distinct from plain Reports. */
+export function IconCancel({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <path d="M6 2.8h9.5l3.7 3.7V21a1 1 0 0 1-1.5.85L15.5 20.5 13 22l-2.5-1.5L8 22l-2.2-1.15A1 1 0 0 1 4.5 20V4.3a1.5 1.5 0 0 1 1.5-1.5Z" />
+      <path d="M8.5 9.5h7" />
+      <path d="M8.5 13.5h7" />
+    </svg>
+  );
+}

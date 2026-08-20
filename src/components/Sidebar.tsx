@@ -5,7 +5,9 @@ import { usePathname } from 'next/navigation';
 import { useApp } from './AppContext';
 import { strings } from '@/lib/strings';
 import {
+  IconCancel,
   IconDashboard,
+  IconDeal,
   IconMenu,
   IconOrder,
   IconReceipt,
@@ -16,7 +18,7 @@ import {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { tablesEnabled } = useApp();
+  const { tablesEnabled, staff, signOut } = useApp();
 
   const links = [
     { href: '/', label: strings.nav.dashboard, icon: <IconDashboard /> },
@@ -25,7 +27,9 @@ export function Sidebar() {
     // A pure takeaway counter never sees this.
     ...(tablesEnabled ? [{ href: '/tables/', label: strings.nav.tables, icon: <IconTables /> }] : []),
     { href: '/menu/', label: strings.nav.menu, icon: <IconMenu /> },
+    { href: '/deals/', label: strings.nav.deals, icon: <IconDeal /> },
     { href: '/reports/', label: strings.nav.reports, icon: <IconReports /> },
+    { href: '/cancellations/', label: strings.nav.cancellations, icon: <IconCancel /> },
     { href: '/settings/', label: strings.nav.settings, icon: <IconSettings /> },
   ];
 
@@ -59,6 +63,23 @@ export function Sidebar() {
           {link.label}
         </Link>
       ))}
+
+      {/* Who is on the counter. Present at all times so a cancellation can
+          never be made under a name the person did not notice they were using. */}
+      {staff ? (
+        <div className="sidebar-staff">
+          <div className="sidebar-staff-who">
+            <span className="sidebar-staff-initial">{staff.name.slice(0, 1).toUpperCase()}</span>
+            <div>
+              <div className="sidebar-staff-label">{strings.staff.signedInAs}</div>
+              <div className="sidebar-staff-name">{staff.name}</div>
+            </div>
+          </div>
+          <button className="sidebar-staff-out" onClick={() => void signOut()}>
+            {strings.staff.signOut}
+          </button>
+        </div>
+      ) : null}
 
       <div className="sidebar-foot">Works fully offline</div>
     </nav>

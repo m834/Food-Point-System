@@ -1,55 +1,41 @@
-import crypto from 'node:crypto';
 import { getSetting, saveSettings } from '../db/repositories/settings';
+import { assertPinShape, encodePin, isEncoded, verifyPin } from './pinHash';
 import { SETTING_KEYS } from '../../shared/types';
 
 /**
- * The only permission in v1 (spec §4).
+ * The manager/owner PIN — the authority that outranks the counter.
  *
- * A single optional manager PIN gates voids. Set it and voiding asks for it;
- * leave it blank and voids are open. There are no users, no roles and no login
- * — a counter under pressure should not be signing in and out all day, and the
- * thing worth protecting is a cashier quietly cancelling paid items.
+ * It gates exactly one thing: **cancelling an order whose money has already
+ * been taken.** That is the theft this app is defending against — a counter
+ * hand voiding a paid sale and keeping the cash — so it is the one action a
+ * normal staff member must not be able to complete alone.
  *
- * The PIN is stored as a salted hash, and it is checked HERE, in the main
- * process. The renderer never sees the stored value and never gets to report
- * that a check passed.
+ * Cancelling an order that has NOT been paid is deliberately not gated. It is
+ * the common, honest case (wrong order, customer walked out) and nothing has
+ * been taken yet, so demanding a manager for every mis-tap would only teach
+ * the counter to work around the app.
+ *
+ * The PIN is stored as a salted hash and checked HERE, in the main process.
+ * The renderer never sees the stored value and never gets to report that a
+ * check passed.
  */
 
-const SEPARATOR = '$';
-
-function hash(pin: string, salt: string): string {
-  return crypto.scryptSync(pin, salt, 32).toString('hex');
-}
-
-/** `salt$hash`, or '' when no PIN is set. */
-export function encodePin(pin: string): string {
-  const salt = crypto.randomBytes(16).toString('hex');
-  return `${salt}${SEPARATOR}${hash(pin, salt)}`;
-}
-
 export function isPinSet(): boolean {
-  return getSetting(SETTING_KEYS.managerPin).includes(SEPARATOR);
+  return isEncoded(getSetting(SETTING_KEYS.managerPin));
 }
 
 /**
  * Throws a message the cashier can act on. Returns quietly when no PIN is
- * configured, which is the "voids are open" case.
+ * configured, which is the "the owner has not turned this on" case.
  */
 export function requirePin(supplied: unknown): void {
   const stored = getSetting(SETTING_KEYS.managerPin);
-  if (!stored.includes(SEPARATOR)) return;
+  if (!isEncoded(stored)) return;
 
   if (typeof supplied !== 'string' || !supplied.trim()) {
-    throw new Error('A manager PIN is needed to void.');
+    throw new Error('A manager PIN is needed to cancel a paid order.');
   }
-
-  const [salt, expected] = stored.split(SEPARATOR);
-  const actual = hash(supplied.trim(), salt);
-
-  // Constant-time: a PIN is short enough that a timing oracle is worth avoiding.
-  const a = Buffer.from(actual, 'hex');
-  const b = Buffer.from(expected, 'hex');
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+  if (!verifyPin(supplied, stored)) {
     throw new Error("That PIN doesn't match.");
   }
 }
@@ -64,8 +50,6 @@ export function setPin(pin: string): void {
     saveSettings({ [SETTING_KEYS.managerPin]: '' });
     return;
   }
-  if (!/^\d{4,8}$/.test(trimmed)) {
-    throw new Error('The manager PIN must be 4 to 8 digits.');
-  }
+  assertPinShape(trimmed);
   saveSettings({ [SETTING_KEYS.managerPin]: encodePin(trimmed) });
 }

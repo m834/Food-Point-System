@@ -1,4 +1,5 @@
 import { getAllSettings } from '../db/repositories/settings';
+import { groupOrderLines, isDealGroup } from '../../shared/dealLines';
 import { SETTING_KEYS, ORDER_TYPE_LABELS, type Order, type OrderItem } from '../../shared/types';
 
 /**
@@ -82,6 +83,11 @@ export function buildCustomerBill(order: Order): string {
   const symbol = settings[SETTING_KEYS.currencySymbol] || 'Rs.';
   const out: string[] = [];
 
+  // A ruled masthead rather than a bare line of text. Thermal paper has no
+  // logo to lean on, so the rules do the work of carrying the top of the bill.
+  // The name itself stays verbatim — letter-spacing it would look smart and
+  // make the shop's own name unsearchable in a reprinted bill.
+  out.push(line('='));
   out.push(centre(settings[SETTING_KEYS.businessName] || 'Food Point'));
   if (settings[SETTING_KEYS.businessAddress]) {
     out.push(...wrap(settings[SETTING_KEYS.businessAddress], WIDTH).map(centre));
@@ -90,7 +96,7 @@ export function buildCustomerBill(order: Order): string {
     out.push(centre(settings[SETTING_KEYS.businessPhone]));
   }
 
-  out.push('');
+  out.push(line('='));
   const [orderLine, whereLine] = header(order);
   out.push(row(orderLine, whereLine));
   out.push(order.settled_at ?? order.opened_at);
@@ -98,9 +104,34 @@ export function buildCustomerBill(order: Order): string {
   if (order.customer_phone) out.push(`Phone: ${order.customer_phone}`);
   out.push(line());
 
-  for (const item of order.items) {
-    if (item.kitchen_status === 'void') continue;
+  /**
+   * Deals print as ONE line at the combo price, with their contents listed
+   * underneath without prices. The component rows exist in the database and
+   * carry the real food costs, but a customer handed a bill that itemises a
+   * "deal" into three separately-priced parts would reasonably ask why the
+   * numbers do not match the price on the menu board.
+   */
+  for (const entry of groupOrderLines(order.items)) {
+    if (isDealGroup(entry)) {
+      const qty = `${trimQty(entry.qty)} x `;
+      const amount = money(entry.total, symbol);
+      const nameWidth = WIDTH - amount.length - qty.length - 1;
+      const nameLines = wrap(entry.deal_name, nameWidth, ' '.repeat(qty.length));
 
+      out.push(row(qty + nameLines[0], amount));
+      for (const extra of nameLines.slice(1)) out.push(extra);
+
+      for (const part of entry.lines) {
+        const label = `   - ${trimQty(part.qty)} `;
+        for (const [i, text] of wrap(part.item_name, WIDTH - label.length, ' '.repeat(label.length)).entries()) {
+          out.push(i === 0 ? label + text : text);
+        }
+        if (part.notes) out.push(`     (${part.notes})`);
+      }
+      continue;
+    }
+
+    const item = entry;
     const qty = `${trimQty(item.qty)} x `;
     const amount = money(item.line_total, symbol);
     const nameWidth = WIDTH - amount.length - qty.length - 1;
@@ -162,8 +193,20 @@ export function buildKitchenTicket(order: Order, fired: OrderItem[]): string {
   out.push(new Date().toTimeString().slice(0, 5));
   out.push(line());
 
+  // A deal's components are printed as the individual dishes they are — that
+  // is what the kitchen cooks — but banner-lined so the pass can see they
+  // belong to one combo and plate them together.
+  let currentDeal: number | null = null;
+
   for (const item of fired) {
     if (item.kitchen_status === 'void') continue;
+
+    if (item.deal_group !== currentDeal) {
+      currentDeal = item.deal_group;
+      if (item.deal_group && item.deal_name) {
+        out.push(`>> ${item.deal_name.toUpperCase()}`);
+      }
+    }
 
     const qty = `${trimQty(item.qty)} x `;
     for (const [i, text] of wrap(item.item_name.toUpperCase(), WIDTH - qty.length, ' '.repeat(qty.length)).entries()) {

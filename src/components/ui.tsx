@@ -23,14 +23,31 @@ export function Stat({
   value,
   note,
   profit = false,
+  danger = false,
+  tone,
 }: {
   label: string;
   value: string;
   note?: string;
+  /** Money earned — always green, in both visual registers. */
   profit?: boolean;
+  /**
+   * Money that went the wrong way — cash cancelled after it was taken. Uses
+   * the danger token, never the accent, so it reads as a problem rather than
+   * as decoration.
+   */
+  danger?: boolean;
+  /**
+   * Which coloured edge the tile carries on the dashboard. Purely to tell
+   * four tiles apart at a glance; it never encodes meaning, which is what
+   * `profit` and the semantic tokens are for.
+   */
+  tone?: 'b' | 'c';
 }) {
   return (
-    <div className={`stat${profit ? ' profit' : ''}`}>
+    <div
+      className={`stat${profit ? ' profit' : ''}${danger ? ' danger' : ''}${tone ? ` tone-${tone}` : ''}`}
+    >
       <div className="stat-label">{label}</div>
       <div className="stat-value">{value}</div>
       {note ? <div className="stat-note">{note}</div> : null}

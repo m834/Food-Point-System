@@ -9,6 +9,7 @@ import { strings } from '@/lib/strings';
 import { dateTime, hourLabel, money, qty, todayIso, daysAgoIso } from '@/lib/format';
 import {
   ORDER_TYPE_LABELS,
+  SETTING_KEYS,
   type BestSeller,
   type RangeTotals,
   type SalesByHour,
@@ -23,7 +24,7 @@ import {
  * in when each was paid — nothing is recomputed from today's menu prices.
  */
 export default function ReportsPage() {
-  const { toast } = useApp();
+  const { toast, settings } = useApp();
 
   const [from, setFrom] = useState(daysAgoIso(6));
   const [to, setTo] = useState(todayIso());
@@ -84,9 +85,28 @@ export default function ReportsPage() {
               onChange={(event) => setTo(event.target.value)}
             />
           </Field>
+          <Field label="&nbsp;">
+            <button
+              className="btn"
+              onClick={() => window.print()}
+              disabled={loading || !totals || totals.order_count === 0}
+            >
+              {strings.reports.print}
+            </button>
+          </Field>
         </>
       }
     >
+      {/* Only ever visible on paper: the app chrome does not print, so without
+          this a printed sheet would carry no title, shop or date range. */}
+      <div className="print-only print-head">
+        <h1>{settings[SETTING_KEYS.businessName] || 'Food Point'}</h1>
+        <p>
+          {strings.reports.title} · {from} → {to}
+        </p>
+        <p className="tiny">Printed {dateTime(new Date().toISOString().slice(0, 19).replace('T', ' '))}</p>
+      </div>
+
       {loading || !totals ? (
         <div className="empty">{strings.common.loading}</div>
       ) : totals.order_count === 0 ? (

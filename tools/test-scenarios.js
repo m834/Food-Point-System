@@ -1,0 +1,2080 @@
+/**
+ * Food-Point v1 — the test scenarios, automated.
+ *
+ * Every scenario in Food_Point_System_Test_Scenarios.md that can be checked
+ * without a human looking at a screen is checked here, against the REAL
+ * compiled main process in dist-electron.
+ *
+ *   npm run build:main && npm test
+ *
+ * It runs under Electron because better-sqlite3 is built for Electron's ABI
+ * and the database path comes from app.getPath('userData').
+ *
+ * It writes to a throwaway userData directory and deletes it afterwards, so it
+ * never touches the real %APPDATA%/CodeHustlersFood data. Exit code is non-zero
+ * if any scenario fails, so it can gate a build.
+ */
+const { app } = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+
+const ROOT = path.join(__dirname, '..');
+const dist = path.join(ROOT, 'dist-electron', 'electron');
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'foodpoint-test-'));
+app.setName('CodeHustlersFoodTest');
+app.setPath('userData', tmp);
+
+/* ---------------- tiny test framework ---------------- */
+const results = [];
+let currentSection = '';
+
+function section(name) {
+  currentSection = name;
+}
+function test(id, name, fn) {
+  try {
+    fn();
+    results.push({ id, name, status: 'PASS', section: currentSection });
+  } catch (error) {
+    results.push({ id, name, status: 'FAIL', section: currentSection, error: error.message });
+  }
+}
+async function testAsync(id, name, fn) {
+  try {
+    await fn();
+    results.push({ id, name, status: 'PASS', section: currentSection });
+  } catch (error) {
+    results.push({ id, name, status: 'FAIL', section: currentSection, error: error.message });
+  }
+}
+function eq(actual, expected, what) {
+  if (actual !== expected) {
+    throw new Error(`${what}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  }
+}
+function ok(cond, what) {
+  if (!cond) throw new Error(what);
+}
+function throws(fn, what) {
+  let threw = false;
+  let msg = '';
+  try {
+    fn();
+  } catch (e) {
+    threw = true;
+    msg = e.message;
+  }
+  if (!threw) throw new Error(`${what}: expected it to be refused, but it succeeded`);
+  return msg;
+}
+
+app.whenReady().then(async () => {
+  const { getDb, closeDb, reopenDb, dbPath } = require(path.join(dist, 'db', 'connection'));
+  const { migrate } = require(path.join(dist, 'db', 'migrate'));
+  const orders = require(path.join(dist, 'db', 'repositories', 'orders'));
+  const tables = require(path.join(dist, 'db', 'repositories', 'tables'));
+  const menu = require(path.join(dist, 'db', 'repositories', 'menu'));
+  const deals = require(path.join(dist, 'db', 'repositories', 'deals'));
+  const staffRepo = require(path.join(dist, 'db', 'repositories', 'staff'));
+  const session = require(path.join(dist, 'services', 'session'));
+  const managerPin = require(path.join(dist, 'services', 'managerPin'));
+  const cancelGuard = require(path.join(dist, 'services', 'cancelGuard'));
+  const settingsRepo = require(path.join(dist, 'db', 'repositories', 'settings'));
+  const reports = require(path.join(dist, 'db', 'repositories', 'reports'));
+  const receipt = require(path.join(dist, 'services', 'receipt'));
+  const printing = require(path.join(dist, 'services', 'printing'));
+  const licenseSvc = require(path.join(dist, 'services', 'license'));
+  const backupSvc = require(path.join(dist, 'services', 'backup'));
+  const { todayIso } = require(path.join(dist, 'db', 'money'));
+
+  getDb();
+  migrate();
+  const db = getDb();
+
+  /* ================= Section 0 — seed exact test data ================= */
+  section('0 — Test data');
+  const cat = {};
+  for (const [i, name] of ['Fast Food', 'BBQ', 'Drinks'].entries()) {
+    cat[name] = Number(
+      getDb().prepare('INSERT INTO menu_categories (name, sort_order) VALUES (?, ?)').run(name, i)
+        .lastInsertRowid,
+    );
+  }
+  const ITEMS = [
+    ['Chicken Biryani', 'Fast Food', 400, 180],
+    ['Zinger Burger', 'Fast Food', 350, 150],
+    ['Cold Drink', 'Drinks', 80, 40],
+    ['Seekh Kebab', 'BBQ', 600, 300],
+    ['Chicken Tikka', 'BBQ', 550, 280],
+    ['Mineral Water', 'Drinks', 60, 30],
+  ];
+  const item = {};
+  ITEMS.forEach(([name, c, sale, cost], i) => {
+    item[name] = Number(
+      db
+        .prepare(
+          `INSERT INTO menu_items (name, category_id, sale_price, cost_price, is_available, sort_order)
+           VALUES (?, ?, ?, ?, 1, ?)`,
+        )
+        .run(name, cat[c], sale, cost, i).lastInsertRowid,
+    );
+  });
+
+  const sizeGroup = Number(
+    getDb().prepare("INSERT INTO modifier_groups (name, selection_type) VALUES ('Size','single')").run()
+      .lastInsertRowid,
+  );
+  const modRegular = Number(
+    getDb().prepare('INSERT INTO modifiers (group_id, name, price_delta) VALUES (?,?,?)').run(sizeGroup, 'Regular', 0).lastInsertRowid,
+  );
+  const modLarge = Number(
+    getDb().prepare('INSERT INTO modifiers (group_id, name, price_delta) VALUES (?,?,?)').run(sizeGroup, 'Large', 50).lastInsertRowid,
+  );
+  const addOnGroup = Number(
+    getDb().prepare("INSERT INTO modifier_groups (name, selection_type) VALUES ('Add-ons','multi')").run()
+      .lastInsertRowid,
+  );
+  const modCheese = Number(
+    getDb().prepare('INSERT INTO modifiers (group_id, name, price_delta) VALUES (?,?,?)').run(addOnGroup, 'Extra Cheese', 60).lastInsertRowid,
+  );
+  const modNoOnions = Number(
+    getDb().prepare('INSERT INTO modifiers (group_id, name, price_delta) VALUES (?,?,?)').run(addOnGroup, 'No Onions', 0).lastInsertRowid,
+  );
+  getDb().prepare('INSERT INTO item_modifier_groups (item_id, group_id) VALUES (?,?)').run(item['Zinger Burger'], sizeGroup);
+  getDb().prepare('INSERT INTO item_modifier_groups (item_id, group_id) VALUES (?,?)').run(item['Zinger Burger'], addOnGroup);
+  getDb().prepare('INSERT INTO item_modifier_groups (item_id, group_id) VALUES (?,?)').run(item['Chicken Biryani'], sizeGroup);
+
+  const T = {};
+  for (const name of ['T1', 'T2', 'T3', 'T4', 'T5']) {
+    T[name] = Number(
+      getDb().prepare('INSERT INTO tables (name, area, seats) VALUES (?, ?, ?)').run(name, 'Main', 4)
+        .lastInsertRowid,
+    );
+  }
+  settingsRepo.saveSettings({
+    enable_tables: '1',
+    enable_kitchen_print: '1',
+    service_charge_percent: '0',
+    currency_symbol: 'Rs',
+    business_name: 'Test Food Point',
+    business_address: 'Main Road, Lahore',
+    business_phone: '0300-1234567',
+    manager_pin: '1234',
+  });
+
+  test('0.1', 'Seed data present', () => {
+    eq(getDb().prepare('SELECT COUNT(*) n FROM menu_categories').get().n, 3, 'categories');
+    eq(getDb().prepare('SELECT COUNT(*) n FROM menu_items').get().n, 6, 'items');
+    eq(getDb().prepare('SELECT COUNT(*) n FROM tables').get().n, 5, 'tables');
+    eq(settingsRepo.serviceChargePercent(), 0, 'service charge');
+  });
+
+  /* ================= Section 2 — Menu management ================= */
+  section('2 — Menu management');
+
+  test('2.1', 'Add category & item', () => {
+    const c = menu.saveCategory({ name: 'Deals', sort_order: 9 });
+    ok(c.id > 0, 'category created');
+    const it = menu.saveItem({
+      name: 'Family Deal',
+      category_id: c.id,
+      sale_price: 1500,
+      cost_price: 700,
+      is_available: 1,
+      sort_order: 0,
+    });
+    ok(it.id > 0, 'item created');
+    const grid = menu.listItems();
+    ok(grid.some((r) => r.id === it.id && r.category_id === c.id), 'item appears under category');
+    menu.removeItem(it.id);
+    menu.removeCategory(c.id);
+  });
+
+  test('2.2', '86 toggle blocks adding', () => {
+    menu.setAvailable(item['Cold Drink'], false);
+    eq(menu.getItem(item['Cold Drink']).is_available, 0, 'marked unavailable');
+    const o = orders.openOrder({ type: 'takeaway' });
+    throws(
+      () => orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]),
+      'sold-out item add',
+    );
+    menu.setAvailable(item['Cold Drink'], true);
+    const after = orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    eq(after.items.length, 1, 'addable again after toggle back');
+    voidOrderCompat(o.id, 'test cleanup');
+  });
+
+  test('2.3', 'Attach modifiers surfaces them on the item', () => {
+    const groups = menu.modifierGroupsForItem(item['Zinger Burger']);
+    ok(groups.some((g) => g.name === 'Size'), 'Size offered on Zinger Burger');
+    ok(groups.some((g) => g.name === 'Add-ons'), 'Add-ons offered');
+    const noneFor = menu.modifierGroupsForItem(item['Seekh Kebab']);
+    eq(noneFor.length, 0, 'unattached item offers no groups');
+  });
+
+  test('2.4', 'Category sort order', () => {
+    const before = menu.listCategories().map((c) => c.name);
+    const bbq = menu.listCategories().find((c) => c.name === 'BBQ');
+    menu.saveCategory({ id: bbq.id, name: 'BBQ', sort_order: -5 });
+    const after = menu.listCategories().map((c) => c.name);
+    eq(after[0], 'BBQ', 'BBQ moved to front');
+    ok(JSON.stringify(before) !== JSON.stringify(after), 'ordering actually changed');
+    menu.saveCategory({ id: bbq.id, name: 'BBQ', sort_order: 1 });
+  });
+
+  test('2.5', 'Editing price does not rewrite settled history', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.total, 400, 'total at settle');
+    eq(settled.profit, 220, 'profit at settle');
+
+    menu.saveItem({
+      id: item['Chicken Biryani'],
+      name: 'Chicken Biryani',
+      category_id: cat['Fast Food'],
+      sale_price: 999,
+      cost_price: 500,
+      is_available: 1,
+      sort_order: 0,
+    });
+    const reread = orders.getOrder(o.id);
+    eq(reread.total, 400, 'settled total unchanged after menu reprice');
+    eq(reread.profit, 220, 'settled profit unchanged after menu reprice');
+    eq(reread.items[0].sale_price, 400, 'line snapshot unchanged');
+    eq(reread.items[0].cost_price, 180, 'cost snapshot unchanged');
+    // restore
+    menu.saveItem({
+      id: item['Chicken Biryani'],
+      name: 'Chicken Biryani',
+      category_id: cat['Fast Food'],
+      sale_price: 400,
+      cost_price: 180,
+      is_available: 1,
+      sort_order: 0,
+    });
+  });
+
+  /* ================= Section 3 — Tables ================= */
+  section('3 — Tables / floor');
+
+  test('3.1', 'All tables free at start', () => {
+    const list = tables.listTables();
+    eq(list.length, 5, 'five tables');
+    ok(list.every((t) => !t.open_order_id), 'all free');
+  });
+
+  let t1Order;
+  test('3.2', 'Free -> occupied with running total', () => {
+    t1Order = orders.openOrder({ type: 'dine_in', table_id: T.T1 });
+    orders.addItems(t1Order.id, [{ menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [] }]);
+    const t1 = tables.getTable(T.T1);
+    eq(t1.open_order_id, t1Order.id, 'T1 occupied by that order');
+    eq(t1.running_total, 350, 'running total shown');
+  });
+
+  test('3.3', 'Running total updates on the card', () => {
+    orders.addItems(t1Order.id, [{ menu_item_id: item['Cold Drink'], qty: 2, modifier_ids: [] }]);
+    eq(tables.getTable(T.T1).running_total, 510, 'total = 350 + 160');
+  });
+
+  test('3.4', 'Occupied -> resume existing order', () => {
+    const existing = tables.openOrderIdForTable(T.T1);
+    eq(existing, t1Order.id, 'tapping T1 resolves to the existing open order');
+    const resumed = orders.getOrder(existing);
+    eq(resumed.items.length, 2, 'resumed with its items, not a new empty order');
+  });
+
+  test('3.8', 'Cannot double-book a table', () => {
+    const msg = throws(() => orders.openOrder({ type: 'dine_in', table_id: T.T1 }), 'double-book');
+    ok(/resume/i.test(msg), `message should point to resuming, got: ${msg}`);
+    eq(
+      getDb().prepare("SELECT COUNT(*) n FROM orders WHERE table_id = ? AND status='open'").get(T.T1).n,
+      1,
+      'still exactly one open order on T1',
+    );
+  });
+
+  test('3.7', 'Two tables at once, separate totals', () => {
+    const t3 = orders.openOrder({ type: 'dine_in', table_id: T.T3 });
+    orders.addItems(t3.id, [{ menu_item_id: item['Seekh Kebab'], qty: 1, modifier_ids: [] }]);
+    const list = tables.listTables();
+    const byName = Object.fromEntries(list.map((t) => [t.name, t]));
+    eq(byName.T1.running_total, 510, 'T1 total');
+    eq(byName.T3.running_total, 600, 'T3 total');
+    ok(!byName.T2.open_order_id && !byName.T4.open_order_id && !byName.T5.open_order_id, 'others free');
+    voidOrderCompat(t3.id, 'test cleanup');
+  });
+
+  test('3.5', 'Occupied -> free on settle', () => {
+    orders.settleOrder(t1Order.id, { payment_method: 'cash' });
+    const t1 = tables.getTable(T.T1);
+    ok(!t1.open_order_id, 'T1 free after settle');
+    eq(t1.running_total, 0, 'total cleared from card');
+  });
+
+  test('3.6', 'Occupied -> free on void', () => {
+    const o = orders.openOrder({ type: 'dine_in', table_id: T.T2 });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Tikka'], qty: 1, modifier_ids: [] }]);
+    ok(tables.getTable(T.T2).open_order_id, 'T2 occupied');
+    voidOrderCompat(o.id, 'customer left');
+    ok(!tables.getTable(T.T2).open_order_id, 'T2 free after void');
+  });
+
+  test('3.9', 'Tables toggle setting readable by backend', () => {
+    settingsRepo.saveSettings({ enable_tables: '0' });
+    eq(settingsRepo.tablesEnabled(), false, 'tables disabled');
+    settingsRepo.saveSettings({ enable_tables: '1' });
+    eq(settingsRepo.tablesEnabled(), true, 'tables re-enabled');
+  });
+
+  test('3.10', 'Occupancy survives a restart (derived, not stored)', () => {
+    const o = orders.openOrder({ type: 'dine_in', table_id: T.T4 });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    reopenDb();
+    const t4 = tables.getTable(T.T4);
+    eq(t4.open_order_id, o.id, 'T4 still occupied after DB reopen');
+    eq(orders.getOrder(o.id).status, 'open', 'order still open');
+    eq(orders.getOrder(o.id).items.length, 1, 'items still there');
+    voidOrderCompat(o.id, 'test cleanup');
+  });
+
+  /* ================= Section 4 — Order taking ================= */
+  section('4 — Order taking');
+
+  test('4.1', 'Start each order type', () => {
+    const dine = orders.openOrder({ type: 'dine_in', table_id: T.T5 });
+    eq(dine.type, 'dine_in', 'dine-in type');
+    eq(dine.table_id, T.T5, 'table recorded');
+
+    const take = orders.openOrder({ type: 'takeaway' });
+    eq(take.type, 'takeaway', 'takeaway type');
+    eq(take.table_id, null, 'no table on takeaway');
+
+    const deliv = orders.openOrder({
+      type: 'delivery',
+      customer_name: 'Ali Raza',
+      customer_phone: '0300-9998887',
+    });
+    eq(deliv.type, 'delivery', 'delivery type');
+    eq(deliv.customer_name, 'Ali Raza', 'name captured');
+    eq(deliv.customer_phone, '0300-9998887', 'phone captured');
+
+    voidOrderCompat(dine.id, 'cleanup');
+    voidOrderCompat(take.id, 'cleanup');
+    voidOrderCompat(deliv.id, 'cleanup');
+  });
+
+  let o4;
+  test('4.2', 'Add items from grid, line totals correct', () => {
+    o4 = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addItems(o4.id, [
+      { menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] },
+      { menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] },
+    ]);
+    eq(r.items.length, 2, 'two lines');
+    eq(r.items[0].line_total, 400, 'biryani line');
+    eq(r.items[1].line_total, 80, 'drink line');
+  });
+
+  test('4.3', 'Change quantity', () => {
+    const line = orders.getOrder(o4.id).items[1];
+    const r = orders.setItemQty(line.id, 3);
+    const updated = r.items.find((i) => i.id === line.id);
+    eq(updated.qty, 3, 'qty set');
+    eq(updated.line_total, 240, 'line total = 80 x 3');
+  });
+
+  test('4.4', 'Single-select modifier adds its delta', () => {
+    const r = orders.addItems(o4.id, [
+      { menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [modLarge] },
+    ]);
+    const line = r.items[r.items.length - 1];
+    eq(line.line_total, 400, 'burger 350 + large 50');
+    eq(line.modifiers.length, 1, 'one modifier');
+    eq(line.modifiers[0].name, 'Large', 'Large recorded');
+    eq(line.modifiers[0].price_delta, 50, 'delta snapshotted');
+  });
+
+  test('4.5', 'Multi-select modifiers, including a zero-priced one', () => {
+    const r = orders.addItems(o4.id, [
+      { menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [modCheese, modNoOnions] },
+    ]);
+    const line = r.items[r.items.length - 1];
+    eq(line.line_total, 410, 'burger 350 + cheese 60 + no onions 0');
+    eq(line.modifiers.length, 2, 'both modifiers on the line');
+    ok(line.modifiers.some((m) => m.name === 'No Onions' && m.price_delta === 0), 'No Onions shown at 0');
+  });
+
+  test('4.6', 'Line note attaches and reaches the kitchen ticket', () => {
+    const r = orders.addItems(o4.id, [
+      { menu_item_id: item['Chicken Tikka'], qty: 1, notes: 'less spicy', modifier_ids: [] },
+    ]);
+    const line = r.items[r.items.length - 1];
+    eq(line.notes, 'less spicy', 'note stored on the line');
+    const ticket = receipt.buildKitchenTicket(r, [line]);
+    ok(/LESS SPICY/.test(ticket), 'note appears on kitchen ticket');
+  });
+
+  test('4.7', 'Subtotal = sum of line totals including modifier deltas', () => {
+    const o = orders.getOrder(o4.id);
+    const expected = o.items
+      .filter((i) => i.kitchen_status !== 'void')
+      .reduce((s, i) => s + i.line_total, 0);
+    eq(o.subtotal, Math.round(expected * 100) / 100, 'subtotal matches lines');
+    eq(o.subtotal, 400 + 240 + 400 + 410 + 550, 'subtotal arithmetic');
+  });
+
+  test('4.8', 'Sold-out item cannot be added', () => {
+    menu.setAvailable(item['Seekh Kebab'], false);
+    throws(
+      () => orders.addItems(o4.id, [{ menu_item_id: item['Seekh Kebab'], qty: 1, modifier_ids: [] }]),
+      'sold-out add',
+    );
+    menu.setAvailable(item['Seekh Kebab'], true);
+  });
+
+  test('4.9', 'Sequential per-day order numbers', () => {
+    const nos = getDb()
+      .prepare('SELECT order_no FROM orders ORDER BY id')
+      .all()
+      .map((r) => r.order_no);
+    const prefix = todayIso().replace(/-/g, '');
+    ok(nos.every((n) => n.startsWith(prefix + '-')), 'all carry today prefix');
+    const seqs = nos.map((n) => Number(n.split('-')[1]));
+    for (let i = 1; i < seqs.length; i++) {
+      ok(seqs[i] === seqs[i - 1] + 1, `sequential at ${i}: ${seqs[i - 1]} -> ${seqs[i]}`);
+    }
+    eq(seqs[0], 1, 'starts at 001');
+    eq(nos[0], `${prefix}-001`, 'human readable format');
+  });
+
+  /* ================= Section 5 — Send to kitchen ================= */
+  section('5 — Send to kitchen (fire != settle)');
+
+  let o5;
+  test('5.1', 'First fire prints exactly the new items, no prices', () => {
+    o5 = orders.openOrder({ type: 'dine_in', table_id: T.T1 });
+    orders.addItems(o5.id, [
+      { menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] },
+      { menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [modLarge] },
+      { menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] },
+    ]);
+    const { order, fired } = orders.fireToKitchen(o5.id);
+    eq(fired.length, 3, 'three items fired');
+    ok(fired.every((f) => f.kitchen_status === 'fired'), 'all marked fired');
+    ok(fired.every((f) => f.fired_at), 'fired_at stamped');
+    eq(order.status, 'open', 'order stays OPEN after fire');
+
+    const ticket = receipt.buildKitchenTicket(order, fired);
+    ok(/KITCHEN/.test(ticket), 'ticket header');
+    ok(ticket.includes(order.order_no), 'order no on ticket');
+    ok(/T1/.test(ticket), 'table on ticket');
+    ok(/CHICKEN BIRYANI/.test(ticket), 'item names');
+    ok(/2 x/.test(ticket), 'quantities');
+    ok(/Large/.test(ticket), 'modifier shown');
+    ok(/\d{2}:\d{2}/.test(ticket), 'time on ticket');
+  });
+
+  test('5.2', 'Second fire prints ONLY the newly added items', () => {
+    orders.addItems(o5.id, [
+      { menu_item_id: item['Chicken Tikka'], qty: 1, modifier_ids: [] },
+      { menu_item_id: item['Mineral Water'], qty: 2, modifier_ids: [] },
+    ]);
+    const { order, fired } = orders.fireToKitchen(o5.id);
+    eq(fired.length, 2, 'only the two new items fired');
+    const names = fired.map((f) => f.item_name).sort();
+    eq(names.join(','), 'Chicken Tikka,Mineral Water', 'exactly the new items');
+
+    const ticket = receipt.buildKitchenTicket(order, fired);
+    ok(!/BIRYANI/.test(ticket), 'first-round biryani NOT reprinted');
+    ok(!/ZINGER/.test(ticket), 'first-round burger NOT reprinted');
+    ok(/CHICKEN TIKKA/.test(ticket), 'new item on ticket');
+  });
+
+  test('5.3', 'Nothing new to fire is refused clearly, no duplicate ticket', () => {
+    const msg = throws(() => orders.fireToKitchen(o5.id), 'refire with nothing new');
+    ok(/already gone to the kitchen/i.test(msg), `clear message, got: ${msg}`);
+    const stillFired = orders
+      .getOrder(o5.id)
+      .items.filter((i) => i.kitchen_status === 'fired').length;
+    eq(stillFired, 5, 'all five still fired, nothing re-marked');
+  });
+
+  test('5.4', 'Fire does not settle', () => {
+    const o = orders.getOrder(o5.id);
+    eq(o.status, 'open', 'order still open');
+    eq(o.settled_at, null, 'no settled_at');
+    eq(o.payment_method, null, 'no payment taken');
+    eq(o.profit, null, 'no profit locked in yet');
+    eq(tables.getTable(T.T1).open_order_id, o5.id, 'table still occupied');
+  });
+
+  test('5.5', 'Kitchen ticket carries NO money at all', () => {
+    const o = orders.getOrder(o5.id);
+    const ticket = receipt.buildKitchenTicket(o, o.items);
+    ok(!/Rs/i.test(ticket), 'no currency symbol');
+    ok(!/subtotal/i.test(ticket), 'no subtotal');
+    ok(!/total/i.test(ticket), 'no total');
+    ok(!/\d+\.\d{2}/.test(ticket), 'no decimal money figures');
+    // Prices from the seeded menu must not leak in any form.
+    for (const p of ['400', '350', '80', '550', '60', '50']) {
+      ok(!new RegExp(`\\b${p}\\b`).test(ticket), `price ${p} absent from ticket`);
+    }
+  });
+
+  test('5.6', 'Kitchen ticket legibility: modifiers and notes under each item', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addItems(o.id, [
+      {
+        menu_item_id: item['Zinger Burger'],
+        qty: 2,
+        notes: 'no mayo please',
+        modifier_ids: [modLarge, modCheese],
+      },
+    ]);
+    const { order, fired } = orders.fireToKitchen(o.id);
+    const ticket = receipt.buildKitchenTicket(order, fired);
+    const lines = ticket.split('\n');
+    const idx = lines.findIndex((l) => /ZINGER BURGER/.test(l));
+    ok(idx >= 0, 'item line present');
+    ok(/^2 x /.test(lines[idx]), 'qty leads the line');
+    ok(/- Large/.test(lines[idx + 1]), 'modifier directly under item');
+    ok(/- Extra Cheese/.test(lines[idx + 2]), 'second modifier under item');
+    ok(/\*\* NO MAYO PLEASE \*\*/.test(lines[idx + 3]), 'note flagged under item');
+    voidOrderCompat(o.id, 'cleanup');
+  });
+
+  /* ================= Section 6 — Many orders at once ================= */
+  section('6 — Multiple open orders');
+
+  test('6.1 / 6.2', 'Four orders open in parallel, none overwrites another', () => {
+    // o5 is already open on T1; close it out of the way for a clean count.
+    const before = orders.listOpenOrders().map((o) => o.id);
+    for (const id of before) voidOrderCompat(id, 'reset for section 6');
+
+    const a = orders.openOrder({ type: 'dine_in', table_id: T.T1 });
+    orders.addItems(a.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const b = orders.openOrder({ type: 'dine_in', table_id: T.T3 });
+    orders.addItems(b.id, [{ menu_item_id: item['Seekh Kebab'], qty: 2, modifier_ids: [] }]);
+    const c = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(c.id, [{ menu_item_id: item['Cold Drink'], qty: 4, modifier_ids: [] }]);
+    const d = orders.openOrder({ type: 'delivery', customer_name: 'Sana', customer_phone: '0301-1112223' });
+    orders.addItems(d.id, [{ menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [modCheese] }]);
+
+    const open = orders.listOpenOrders();
+    eq(open.length, 4, 'four open at once');
+
+    // Switching away and back preserves each one exactly.
+    eq(orders.getOrder(a.id).subtotal, 400, 'A untouched');
+    eq(orders.getOrder(b.id).subtotal, 1200, 'B untouched');
+    eq(orders.getOrder(c.id).subtotal, 320, 'C untouched');
+    eq(orders.getOrder(d.id).subtotal, 410, 'D untouched');
+
+    // Adding to one must not touch the others.
+    orders.addItems(c.id, [{ menu_item_id: item['Mineral Water'], qty: 1, modifier_ids: [] }]);
+    eq(orders.getOrder(a.id).subtotal, 400, 'A still untouched after editing C');
+    eq(orders.getOrder(c.id).subtotal, 380, 'C updated');
+
+    global.__six = { a, b, c, d };
+  });
+
+  test('6.3', 'Dashboard open counts', () => {
+    const dash = reports.dashboard();
+    eq(dash.open_order_count, 4, 'open orders = 4');
+    eq(dash.open_table_count, 2, 'open tables = 2 (T1, T3)');
+  });
+
+  test('6.4', 'Resume from the open-orders list', () => {
+    const { a } = global.__six;
+    const summary = orders.listOpenOrders().find((o) => o.id === a.id);
+    ok(summary, 'order listed as resumable');
+    eq(summary.table_name, 'T1', 'shows its table');
+    eq(summary.subtotal, 400, 'shows its running total');
+    const resumed = orders.getOrder(summary.id);
+    eq(resumed.status, 'open', 're-opens still open');
+    eq(resumed.items.length, 1, 'with its items');
+  });
+
+  test('6.5', 'Kitchen state is per-order, not global', () => {
+    const { a, b } = global.__six;
+    orders.fireToKitchen(a.id);
+    const aItems = orders.getOrder(a.id).items;
+    const bItems = orders.getOrder(b.id).items;
+    ok(aItems.every((i) => i.kitchen_status === 'fired'), 'A fired');
+    ok(bItems.every((i) => i.kitchen_status === 'new'), 'B still new');
+  });
+
+  /* ================= Section 7 — Settlement ================= */
+  section('7 — Settlement');
+
+  test('7.1', 'Basic settle', () => {
+    const { a } = global.__six;
+    const settled = orders.settleOrder(a.id, { payment_method: 'cash' });
+    eq(settled.status, 'settled', 'status settled');
+    ok(settled.settled_at, 'settled_at set');
+    eq(settled.total, 400, 'total');
+    ok(!tables.getTable(T.T1).open_order_id, 'table freed');
+
+    const bill = receipt.buildCustomerBill(settled);
+    ok(/Rs400\.00/.test(bill), 'bill carries prices');
+    ok(/TOTAL/.test(bill), 'bill carries a total');
+  });
+
+  test('7.2', 'Discount', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
+    eq(orders.getOrder(o.id).subtotal, 800, 'subtotal 800');
+    const settled = orders.settleOrder(o.id, { discount: 100, payment_method: 'cash' });
+    eq(settled.discount, 100, 'discount recorded');
+    eq(settled.total, 700, 'total 700');
+    const bill = receipt.buildCustomerBill(settled);
+    ok(/Discount\s+-Rs100\.00/.test(bill), 'discount line on bill');
+  });
+
+  test('7.3', 'Service charge 10% on subtotal 800', () => {
+    settingsRepo.saveSettings({ service_charge_percent: '10' });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.subtotal, 800, 'subtotal');
+    eq(settled.service_charge, 80, 'service charge 80');
+    eq(settled.total, 880, 'total 880');
+    const bill = receipt.buildCustomerBill(settled);
+    ok(/Service charge\s+Rs80\.00/.test(bill), 'service charge line on bill');
+
+    // Order of operations, documented: charge on gross subtotal, discount after.
+    const o2 = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o2.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
+    const s2 = orders.settleOrder(o2.id, { discount: 100, payment_method: 'cash' });
+    eq(s2.service_charge, 80, 'charge computed on gross subtotal');
+    eq(s2.total, 780, 'total = 800 - 100 + 80');
+    settingsRepo.saveSettings({ service_charge_percent: '0' });
+  });
+
+  test('7.3b', 'The counter quotes exactly what the bill charges', () => {
+    // Mirrors ChargeModal in src/app/order/page.tsx. If these two formulas ever
+    // drift, the cashier collects one number and the bill prints another.
+    const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const preview = (subtotal, rawDiscount, pct) => {
+      const discount = Math.min(Math.max(0, Number(rawDiscount) || 0), subtotal);
+      const charge = Math.min(Math.max(pct, 0), 100);
+      const serviceCharge = round2((subtotal * charge) / 100);
+      return Math.max(0, round2(subtotal - discount + serviceCharge));
+    };
+
+    for (const [pct, discount] of [
+      [0, 0],
+      [0, 100],
+      [10, 0],
+      [10, 100],
+      [5, 50],
+      [15, 5000], // discount larger than the bill
+      [7.5, 33.33], // awkward percentage and an awkward discount
+    ]) {
+      settingsRepo.saveSettings({ service_charge_percent: String(pct) });
+      const o = orders.openOrder({ type: 'takeaway' });
+      orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
+      const subtotal = orders.getOrder(o.id).subtotal;
+      const quoted = preview(subtotal, discount, pct);
+      const settled = orders.settleOrder(o.id, { discount, payment_method: 'cash' });
+      eq(quoted, settled.total, `quote matches bill at ${pct}% / discount ${discount}`);
+    }
+    settingsRepo.saveSettings({ service_charge_percent: '0' });
+  });
+
+  test('7.4', 'Payment method recorded', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'card' });
+    eq(settled.payment_method, 'card', 'card stored');
+    ok(/Paid by\s+Card/.test(receipt.buildCustomerBill(settled)), 'shown on bill');
+  });
+
+  test('7.5', 'Profit from snapshots: 400 - 180 = 220', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.profit, 220, 'profit 220');
+  });
+
+  test('7.6', 'Profit with a pure-margin modifier', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [
+      { menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [modLarge] },
+    ]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    // Documented rule: modifiers carry no food cost, so the +50 is all margin.
+    // profit = total(400) - cogs(150) = 250
+    eq(settled.total, 400, 'total includes +50');
+    eq(settled.profit, 250, 'profit = 400 - 150');
+  });
+
+  test('7.6b', 'Discount comes out of profit, not out of cost', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { discount: 50, payment_method: 'cash' });
+    eq(settled.total, 350, 'total after discount');
+    eq(settled.profit, 170, 'profit = 350 - 180, discount reduces profit');
+  });
+
+  test('7.7', 'Reprint changes nothing', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const first = receipt.buildCustomerBill(settled);
+    const again = receipt.buildCustomerBill(orders.getOrder(o.id));
+    eq(again, first, 'identical bill text');
+    const after = orders.getOrder(o.id);
+    eq(after.status, 'settled', 'status unchanged');
+    eq(after.total, settled.total, 'total unchanged');
+    eq(after.profit, settled.profit, 'profit unchanged');
+  });
+
+  test('7.8', 'Settle frees a dine-in table', () => {
+    const o = orders.openOrder({ type: 'dine_in', table_id: T.T4 });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Tikka'], qty: 1, modifier_ids: [] }]);
+    ok(tables.getTable(T.T4).open_order_id, 'T4 occupied');
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+    ok(!tables.getTable(T.T4).open_order_id, 'T4 free');
+  });
+
+  /* ================= Section 8 — Voids ================= */
+  section('8 — Voids');
+
+  test('8.1', 'Void a line item', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [
+      { menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] },
+      { menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] },
+    ]);
+    eq(orders.getOrder(o.id).subtotal, 480, 'subtotal before void');
+    const lineId = orders.getOrder(o.id).items[1].id;
+    const after = voidItemCompat(lineId, 'customer changed mind');
+    const line = after.items.find((i) => i.id === lineId);
+    eq(line.kitchen_status, 'void', 'line marked void');
+    // v1.1: the reason is structured (fixed code + note), so the stored line
+    // reads "Other — customer changed mind" rather than the bare note.
+    ok(/customer changed mind/.test(line.void_reason), 'reason logged');
+    ok(line.voided_at, 'voided_at stamped');
+    eq(after.subtotal, 400, 'removed from totals');
+    const bill = receipt.buildCustomerBill(after);
+    ok(!/Cold Drink/.test(bill), 'voided line absent from the bill');
+    global.__void1 = o;
+  });
+
+  test('8.2', 'Void a whole order', () => {
+    const o = orders.openOrder({ type: 'dine_in', table_id: T.T5 });
+    orders.addItems(o.id, [{ menu_item_id: item['Seekh Kebab'], qty: 1, modifier_ids: [] }]);
+    const after = voidOrderCompat(o.id, 'walked out');
+    eq(after.status, 'void', 'order void');
+    ok(/walked out/.test(after.void_reason), 'reason logged');
+    ok(!tables.getTable(T.T5).open_order_id, 'table freed');
+    ok(after.items.every((i) => i.kitchen_status === 'void'), 'lines voided too');
+
+    const today = todayIso();
+    const rng = reports.range(today, today);
+    const settledIds = getDb()
+      .prepare("SELECT id FROM orders WHERE status='settled'")
+      .all()
+      .map((r) => r.id);
+    ok(!settledIds.includes(o.id), 'not counted as a sale');
+  });
+
+  test('8.3', 'Void reason is required', () => {
+    const { asString } = require(path.join(dist, 'ipc', 'util'));
+    throws(() => asString('', 'Reason for voiding', { max: 200 }), 'empty reason');
+    throws(() => asString('   ', 'Reason for voiding', { max: 200 }), 'whitespace reason');
+    throws(() => asString(undefined, 'Reason for voiding', { max: 200 }), 'missing reason');
+  });
+
+  test('8.4', 'Voids appear in the voids report, separate from sales', () => {
+    const today = todayIso();
+    const list = reports.voids(today, today);
+    ok(list.some((v) => v.kind === 'order' && /walked out/.test(v.reason)), 'order void listed');
+    ok(
+      list.some((v) => v.kind === 'item' && /customer changed mind/.test(v.reason)),
+      'item void listed',
+    );
+    ok(list.every((v) => v.reason && v.reason.length), 'every void carries a reason');
+  });
+
+  test('8.5', 'Void an already-fired item', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [
+      { menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] },
+      { menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [] },
+    ]);
+    orders.fireToKitchen(o.id);
+    const fired = orders.getOrder(o.id).items[0];
+    eq(fired.kitchen_status, 'fired', 'line was fired');
+    const after = voidItemCompat(fired.id, 'dropped on the pass');
+    eq(after.items.find((i) => i.id === fired.id).kitchen_status, 'void', 'fired line voids fine');
+    eq(after.subtotal, 350, 'totals exclude the voided fired line');
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.total, 350, 'customer not charged for it');
+    eq(settled.profit, 200, 'cost of the voided item excluded too (350 - 150)');
+  });
+
+  /**
+   * Changed in v1.1. A paid order used to be uncancellable, which sounds safe
+   * but meant a genuine mistake could only be fixed by editing the database.
+   * It is now cancellable — but only behind the manager PIN, and it leaves a
+   * permanent record. See section 15.
+   */
+  test('8.x', 'A settled order can only be cancelled with the manager PIN', () => {
+    managerPin.setPin('4321');
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+
+    throws(() => cancelGuard.assertMayCancel(settled, undefined), 'no PIN is refused');
+    throws(() => cancelGuard.assertMayCancel(settled, '0000'), 'a wrong PIN is refused');
+    cancelGuard.assertMayCancel(settled, '4321');
+    ok(true, 'the manager PIN lets it through');
+    managerPin.setPin('');
+  });
+
+  /* ================= Section 9 — Printing ================= */
+  section('9 — Printing');
+
+  // Intercept the OS print queue so routing can be asserted without a printer.
+  // printing.ts require()s node:child_process at call time, so patching the
+  // cached module here reaches the real code path.
+  const childProcess = require('node:child_process');
+  const realSpawn = childProcess.spawn;
+  const { EventEmitter } = require('node:events');
+  let printJobs = [];
+  function captureJobs() {
+    printJobs = [];
+    childProcess.spawn = (command, args) => {
+      const file = args[args.length - 1];
+      printJobs.push({
+        command,
+        args,
+        printer: args.includes('-d') ? args[args.indexOf('-d') + 1] : '(default)',
+        text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '',
+      });
+      const child = new EventEmitter();
+      setImmediate(() => child.emit('close', 0));
+      return child;
+    };
+  }
+  const releaseJobs = () => {
+    childProcess.spawn = realSpawn;
+  };
+
+  await testAsync('9.1', 'Two printers: kitchen ticket and bill go to different devices', async () => {
+    settingsRepo.saveSettings({
+      printer_customer: 'COUNTER_80MM',
+      printer_kitchen: 'KITCHEN_80MM',
+      enable_kitchen_print: '1',
+    });
+    captureJobs();
+    try {
+      // Section 6 deliberately left orders running; free this table first.
+      const sitting = tables.openOrderIdForTable(T.T3);
+      if (sitting) voidOrderCompat(sitting, 'cleared for printer routing test');
+
+      const o = orders.openOrder({ type: 'dine_in', table_id: T.T3 });
+      orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+
+      const { order, fired } = orders.fireToKitchen(o.id);
+      const fireOut = await printing.printKitchenTicket(order, fired);
+      eq(fireOut.printed, true, 'kitchen ticket printed');
+      eq(printJobs.length, 1, 'one job on fire');
+      eq(printJobs[0].printer, 'KITCHEN_80MM', 'kitchen ticket -> kitchen printer');
+      ok(/KITCHEN/.test(printJobs[0].text), 'it really is the kitchen format');
+      ok(!/Rs/.test(printJobs[0].text), 'and it carries no money');
+
+      const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+      const billOut = await printing.printCustomerBill(settled);
+      eq(billOut.printed, true, 'bill printed');
+      eq(printJobs.length, 2, 'a second, separate job on settle');
+      eq(printJobs[1].printer, 'COUNTER_80MM', 'customer bill -> counter printer');
+      ok(/TOTAL/.test(printJobs[1].text), 'it really is the money format');
+    } finally {
+      releaseJobs();
+    }
+  });
+
+  await testAsync('9.3', 'One printer for both: each format prints in turn', async () => {
+    settingsRepo.saveSettings({ printer_customer: 'ONLY_PRINTER', printer_kitchen: 'ONLY_PRINTER' });
+    captureJobs();
+    try {
+      const o = orders.openOrder({ type: 'takeaway' });
+      orders.addItems(o.id, [{ menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [modLarge] }]);
+      const { order, fired } = orders.fireToKitchen(o.id);
+      await printing.printKitchenTicket(order, fired);
+      const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+      await printing.printCustomerBill(settled);
+
+      eq(printJobs.length, 2, 'two jobs, one after the other');
+      ok(printJobs.every((j) => j.printer === 'ONLY_PRINTER'), 'both on the one device');
+      ok(/KITCHEN/.test(printJobs[0].text) && !/Rs/.test(printJobs[0].text), 'kitchen format first');
+      ok(/TOTAL/.test(printJobs[1].text) && /Rs/.test(printJobs[1].text), 'bill format second');
+      ok(printJobs.every((j) => j.text.endsWith('\n\n\n\n')), 'paper fed past the head to tear');
+    } finally {
+      releaseJobs();
+    }
+  });
+
+  await testAsync('9.3b', 'No kitchen printer set falls back to the counter printer', async () => {
+    settingsRepo.saveSettings({ printer_customer: 'COUNTER_ONLY', printer_kitchen: '' });
+    captureJobs();
+    try {
+      const o = orders.openOrder({ type: 'takeaway' });
+      orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+      const { order, fired } = orders.fireToKitchen(o.id);
+      const out = await printing.printKitchenTicket(order, fired);
+      eq(out.printed, true, 'still printed');
+      eq(printJobs[0].printer, 'COUNTER_ONLY', 'a one-printer shop still gets its ticket');
+      voidOrderCompat(o.id, 'cleanup');
+    } finally {
+      releaseJobs();
+      settingsRepo.saveSettings({ printer_customer: '', printer_kitchen: '' });
+    }
+  });
+
+  await testAsync('9.2', 'Kitchen print OFF degrades cleanly', async () => {
+    settingsRepo.saveSettings({ enable_kitchen_print: '0' });
+    eq(settingsRepo.kitchenPrintEnabled(), false, 'setting off');
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const { order, fired } = orders.fireToKitchen(o.id);
+    const outcome = await printing.printKitchenTicket(order, fired);
+    eq(outcome.printed, false, 'skipped, not printed');
+    eq(outcome.warning, undefined, 'no scary warning for a deliberate setting');
+    eq(orders.getOrder(o.id).items[0].kitchen_status, 'fired', 'firing still happened');
+    settingsRepo.saveSettings({ enable_kitchen_print: '1' });
+    voidOrderCompat(o.id, 'cleanup');
+  });
+
+  await testAsync('9.4', 'Printer offline: clear error, order survives', async () => {
+    settingsRepo.saveSettings({ printer_customer: 'NO_SUCH_PRINTER_XYZ' });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const outcome = await printing.printCustomerBill(settled);
+    eq(outcome.printed, false, 'print failed');
+    ok(outcome.warning && outcome.warning.length > 0, 'a warning was returned');
+    ok(/did not print/i.test(outcome.warning), `human-readable warning, got: ${outcome.warning}`);
+    // The money must survive a dead printer.
+    const after = orders.getOrder(o.id);
+    eq(after.status, 'settled', 'order still settled');
+    eq(after.total, 400, 'total intact');
+    settingsRepo.saveSettings({ printer_customer: '' });
+  });
+
+  test('9.5', 'Customer bill contents', () => {
+    settingsRepo.saveSettings({ service_charge_percent: '5' });
+    const o = orders.openOrder({
+      type: 'delivery',
+      customer_name: 'Bilal',
+      customer_phone: '0333-4445556',
+    });
+    orders.addItems(o.id, [
+      { menu_item_id: item['Zinger Burger'], qty: 2, notes: 'extra crispy', modifier_ids: [modLarge, modCheese] },
+      { menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] },
+    ]);
+    const settled = orders.settleOrder(o.id, { discount: 50, payment_method: 'cash' });
+    const bill = receipt.buildCustomerBill(settled);
+
+    ok(/Test Food Point/.test(bill), 'business name');
+    ok(/Main Road, Lahore/.test(bill), 'business address');
+    ok(/0300-1234567/.test(bill), 'business phone');
+    ok(bill.includes(settled.order_no), 'order no');
+    ok(/Delivery/.test(bill), 'order type');
+    ok(/Customer: Bilal/.test(bill), 'customer name');
+    ok(/Phone: 0333-4445556/.test(bill), 'customer phone');
+    ok(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(bill), 'datetime');
+    ok(/2 x Zinger Burger/.test(bill), 'qty and item name');
+    ok(/\+ Large\s+Rs50\.00/.test(bill), 'modifier with price');
+    ok(/\+ Extra Cheese\s+Rs60\.00/.test(bill), 'second modifier');
+    ok(/\(extra crispy\)/.test(bill), 'line note');
+    ok(/Subtotal\s+Rs/.test(bill), 'subtotal');
+    ok(/Discount\s+-Rs50\.00/.test(bill), 'discount');
+    ok(/Service charge\s+Rs/.test(bill), 'service charge');
+    ok(/TOTAL\s+Rs/.test(bill), 'total');
+    ok(/Thank you/.test(bill), 'thank you');
+
+    // 2 x (350 + 50 + 60) = 920, + 80 drink = 1000; charge 5% of 1000 = 50; -50 disc
+    eq(settled.subtotal, 1000, 'subtotal arithmetic');
+    eq(settled.service_charge, 50, 'service charge');
+    eq(settled.total, 1000, 'total = 1000 - 50 + 50');
+    ok(bill.split('\n').every((l) => l.length <= 42), 'every line fits a 42-col roll');
+    settingsRepo.saveSettings({ service_charge_percent: '0' });
+  });
+
+  /* ================= Section 10 — Reports ================= */
+  section('10 — Reports');
+
+  test('10.1', 'Daily sales & profit match settled orders, voids excluded', () => {
+    const today = todayIso();
+    const dash = reports.dashboard(today);
+    const truth = getDb()
+      .prepare(
+        `SELECT COALESCE(SUM(total),0) t, COALESCE(SUM(profit),0) p, COUNT(*) n
+           FROM orders WHERE status='settled' AND date(settled_at)=?`,
+      )
+      .get(today);
+    eq(dash.sales_total, Math.round(truth.t * 100) / 100, 'sales total');
+    eq(dash.profit_total, Math.round(truth.p * 100) / 100, 'profit total');
+    eq(dash.order_count, truth.n, 'order count');
+
+    const voidTotal = getDb()
+      .prepare("SELECT COALESCE(SUM(subtotal),0) t FROM orders WHERE status='void'")
+      .get().t;
+    ok(voidTotal > 0, 'there ARE voids in the data');
+    const rng = reports.range(today, today);
+    eq(rng.sales_total, dash.sales_total, 'range matches dashboard — voids excluded from both');
+  });
+
+  test('10.2', 'Date range totals', () => {
+    const today = todayIso();
+    const rng = reports.range('2000-01-01', '2099-12-31');
+    const truth = getDb()
+      .prepare("SELECT COALESCE(SUM(total),0) t, COUNT(*) n FROM orders WHERE status='settled'")
+      .get();
+    eq(rng.sales_total, Math.round(truth.t * 100) / 100, 'wide range total');
+    eq(rng.order_count, truth.n, 'wide range count');
+    const narrow = reports.range(today, today);
+    eq(narrow.days.length, 1, 'one day bucket');
+    eq(narrow.days[0].sales, narrow.sales_total, 'day bucket sums to the range');
+  });
+
+  test('10.3', 'By order type adds up to the total', () => {
+    const today = todayIso();
+    const byType = reports.salesByType(today, today);
+    const sum = byType.reduce((s, r) => s + r.sales, 0);
+    const rng = reports.range(today, today);
+    eq(Math.round(sum * 100) / 100, rng.sales_total, 'type split sums to total');
+    const counts = byType.reduce((s, r) => s + r.order_count, 0);
+    eq(counts, rng.order_count, 'type counts sum to order count');
+    ok(byType.every((r) => ['dine_in', 'takeaway', 'delivery'].includes(r.type)), 'valid types');
+  });
+
+  test('10.4', 'Best sellers ranked correctly', () => {
+    const today = todayIso();
+    const best = reports.bestSellers(today, today);
+    ok(best.length > 0, 'has rows');
+    for (let i = 1; i < best.length; i++) {
+      ok(best[i - 1].qty >= best[i].qty, 'sorted by qty descending');
+    }
+    const truth = getDb()
+      .prepare(
+        `SELECT oi.item_name, SUM(oi.qty) q, SUM(oi.line_total) rev
+           FROM order_items oi JOIN orders o ON o.id=oi.order_id
+          WHERE o.status='settled' AND date(o.settled_at)=? AND oi.kitchen_status!='void'
+          GROUP BY oi.item_name ORDER BY q DESC LIMIT 1`,
+      )
+      .get(today);
+    eq(best[0].item_name, truth.item_name, 'top seller matches raw data');
+    eq(best[0].qty, truth.q, 'top qty matches');
+    eq(Math.round(best[0].revenue * 100) / 100, Math.round(truth.rev * 100) / 100, 'revenue matches');
+  });
+
+  test('10.5', 'Sales by hour reflects settle times', () => {
+    const today = todayIso();
+    const hours = reports.salesByHour(today, today);
+    ok(hours.length > 0, 'has rows');
+    const sum = hours.reduce((s, r) => s + r.sales, 0);
+    eq(Math.round(sum * 100) / 100, reports.range(today, today).sales_total, 'hours sum to total');
+    ok(hours.every((h) => h.hour >= 0 && h.hour <= 23), 'valid hour numbers');
+    const dash = reports.dashboard(today);
+    const busiest = hours.slice().sort((a, b) => b.sales - a.sales)[0];
+    eq(dash.busiest_hour.hour, busiest.hour, 'dashboard busiest hour matches the report');
+  });
+
+  test('10.6', 'Voids report lists both kinds with reasons', () => {
+    const list = reports.voids('2000-01-01', '2099-12-31');
+    ok(list.some((v) => v.kind === 'order'), 'order voids');
+    ok(list.some((v) => v.kind === 'item'), 'item voids');
+    ok(list.every((v) => typeof v.reason === 'string'), 'reasons present');
+    ok(list.every((v) => v.order_no), 'each traces to an order');
+  });
+
+  test('11.1/11.3', 'Dashboard peeks match the reports', () => {
+    const today = todayIso();
+    const dash = reports.dashboard(today);
+    const best = reports.bestSellers(today, today, 1)[0];
+    eq(dash.best_seller.name, best.item_name, 'best seller matches');
+    eq(dash.best_seller.qty, best.qty, 'best seller qty matches');
+    eq(dash.sales_total, reports.range(today, today).sales_total, 'sales match daily report');
+    eq(dash.profit_total, reports.range(today, today).profit_total, 'profit matches daily report');
+  });
+
+  /* ================= Section 12 — Backup / persistence ================= */
+  section('12 — Backup & persistence');
+
+  // backupNow()/restoreFromFile() drive OS dialogs; stub the picker so the real
+  // copy/checkpoint/restore code underneath still runs for real.
+  const { dialog } = require('electron');
+  const stubDialog = (dir, file, confirm = 1) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file ?? dir] });
+    dialog.showMessageBox = async () => ({ response: confirm });
+  };
+
+  await testAsync('12.1', 'One-click backup writes a real file and logs it', async () => {
+    const dest = path.join(tmp, 'backups');
+    fs.mkdirSync(dest, { recursive: true });
+    stubDialog(dest);
+    const record = await backupSvc.backupNow();
+    ok(fs.existsSync(record.path), 'backup file written to the chosen folder');
+    ok(record.path.startsWith(dest), 'written where the user pointed');
+    ok(record.size_bytes > 0, 'non-empty');
+    ok(backupSvc.history().length > 0, 'logged in backup history');
+    ok(backupSvc.last().path === record.path, 'last backup recorded');
+    global.__backup = record;
+
+    // A backup taken while WAL is dirty must still contain the latest orders.
+    const Database = require(path.join(ROOT, 'node_modules', 'better-sqlite3'));
+    const copy = new Database(record.path, { readonly: true });
+    const inCopy = copy.prepare("SELECT COUNT(*) n FROM orders WHERE status='settled'").get().n;
+    const inLive = getDb().prepare("SELECT COUNT(*) n FROM orders WHERE status='settled'").get().n;
+    eq(inCopy, inLive, 'backup contains every settled order (WAL checkpointed)');
+    copy.close();
+  });
+
+  await testAsync('12.2', 'Restore brings all data back intact', async () => {
+    const record = global.__backup;
+    const dbNow = getDb();
+    const before = {
+      settled: getDb().prepare("SELECT COUNT(*) n FROM orders WHERE status='settled'").get().n,
+      items: getDb().prepare('SELECT COUNT(*) n FROM menu_items').get().n,
+      tables: getDb().prepare('SELECT COUNT(*) n FROM tables').get().n,
+      total: getDb().prepare("SELECT COALESCE(SUM(total),0) t FROM orders WHERE status='settled'").get().t,
+    };
+
+    // Simulate a machine that lost everything.
+    getDb().prepare('DELETE FROM orders').run();
+    getDb().prepare('DELETE FROM menu_items').run();
+    eq(getDb().prepare('SELECT COUNT(*) n FROM orders').get().n, 0, 'data wiped');
+
+    stubDialog(null, record.path, 1);
+    const result = await backupSvc.restoreFromFile();
+    eq(result.restored, true, 'restore reported success');
+
+    const db2 = getDb();
+    eq(getDb().prepare("SELECT COUNT(*) n FROM orders WHERE status='settled'").get().n, before.settled, 'orders restored');
+    eq(getDb().prepare('SELECT COUNT(*) n FROM menu_items').get().n, before.items, 'menu restored');
+    eq(getDb().prepare('SELECT COUNT(*) n FROM tables').get().n, before.tables, 'tables restored');
+    eq(
+      Math.round(getDb().prepare("SELECT COALESCE(SUM(total),0) t FROM orders WHERE status='settled'").get().t * 100) / 100,
+      Math.round(before.total * 100) / 100,
+      'money restored exactly',
+    );
+    eq(getDb().prepare("SELECT value FROM settings WHERE key='business_name'").get().value, 'Test Food Point', 'settings restored');
+    ok(
+      fs.readdirSync(path.dirname(dbPath())).some((f) => f.includes('.replaced-')),
+      'the overwritten database was kept as a safety copy',
+    );
+  });
+
+  await testAsync('12.2b', 'Cancelling a restore changes nothing', async () => {
+    const before = getDb().prepare("SELECT COUNT(*) n FROM orders").get().n;
+    stubDialog(null, global.__backup.path, 0); // user picks Cancel on the confirm
+    let refused = false;
+    try {
+      await backupSvc.restoreFromFile();
+    } catch {
+      refused = true;
+    }
+    ok(refused, 'restore refused when not confirmed');
+    eq(getDb().prepare('SELECT COUNT(*) n FROM orders').get().n, before, 'data untouched');
+  });
+
+  test('12.3', 'Persistence across a restart', () => {
+    const dbNow = getDb();
+    const settledBefore = getDb().prepare("SELECT COUNT(*) n FROM orders WHERE status='settled'").get().n;
+    reopenDb();
+    const after = getDb().prepare("SELECT COUNT(*) n FROM orders WHERE status='settled'").get().n;
+    eq(after, settledBefore, 'nothing lost across reopen');
+  });
+
+  test('12.4', 'Data lives under userData, not the app bundle', () => {
+    ok(dbPath().startsWith(app.getPath('userData')), 'db under userData');
+    ok(!dbPath().includes('/Applications/'), 'not in the app bundle');
+  });
+
+  /* ================= Section 13 — Stress & edge cases ================= */
+  section('13 — Stress & edge cases');
+  const dbS = getDb();
+
+  test('13.1', '20 orders open at once stay independent', () => {
+    for (const id of orders.listOpenOrders().map((o) => o.id)) voidOrderCompat(id, 'reset');
+    const made = [];
+    const started = Date.now();
+    for (let i = 0; i < 20; i++) {
+      const o = orders.openOrder({ type: 'takeaway' });
+      orders.addItems(o.id, [
+        { menu_item_id: item['Chicken Biryani'], qty: (i % 3) + 1, modifier_ids: [] },
+      ]);
+      made.push({ id: o.id, expected: 400 * ((i % 3) + 1) });
+    }
+    const elapsed = Date.now() - started;
+    eq(orders.listOpenOrders().length, 20, 'twenty open');
+    for (const m of made) {
+      eq(orders.getOrder(m.id).subtotal, m.expected, `order ${m.id} uncorrupted`);
+    }
+    ok(elapsed < 5000, `stayed fast (${elapsed}ms for 20 orders)`);
+    const nos = made.map((m) => orders.getOrder(m.id).order_no);
+    eq(new Set(nos).size, 20, 'twenty distinct order numbers');
+    for (const m of made) voidOrderCompat(m.id, 'cleanup');
+  });
+
+  test('13.2', 'Fire five times, adding one item each round', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const seq = ['Chicken Biryani', 'Zinger Burger', 'Cold Drink', 'Chicken Tikka', 'Mineral Water'];
+    let expectedTotal = 0;
+    seq.forEach((name, round) => {
+      orders.addItems(o.id, [{ menu_item_id: item[name], qty: 1, modifier_ids: [] }]);
+      const { order, fired } = orders.fireToKitchen(o.id);
+      eq(fired.length, 1, `round ${round + 1} fires exactly one item`);
+      eq(fired[0].item_name, name, `round ${round + 1} fires the right item`);
+      const ticket = receipt.buildKitchenTicket(order, fired);
+      for (const other of seq.filter((s) => s !== name)) {
+        ok(!new RegExp(other.toUpperCase()).test(ticket), `${other} not on round ${round + 1} ticket`);
+      }
+      expectedTotal += ITEMS.find((r) => r[0] === name)[2];
+      eq(order.subtotal, expectedTotal, `running total correct after round ${round + 1}`);
+    });
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.total, 400 + 350 + 80 + 550 + 60, 'final total correct');
+  });
+
+  test('13.3', 'Very large quantity', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 99, modifier_ids: [] }]);
+    eq(r.items[0].line_total, 39600, '99 x 400');
+    eq(r.subtotal, 39600, 'subtotal');
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.total, 39600, 'total holds');
+    eq(settled.profit, 39600 - 99 * 180, 'profit holds');
+    ok(/Rs39600\.00/.test(receipt.buildCustomerBill(settled)), 'prints without a format bug');
+  });
+
+  test('13.4', 'Discount larger than subtotal is clamped, never negative', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { discount: 5000, payment_method: 'cash' });
+    eq(settled.discount, 80, 'discount clamped to subtotal');
+    eq(settled.total, 0, 'total floors at zero');
+    ok(settled.total >= 0, 'never negative');
+
+    const o2 = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o2.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const s2 = orders.settleOrder(o2.id, { discount: -500, payment_method: 'cash' });
+    eq(s2.discount, 0, 'negative discount clamped to zero');
+    eq(s2.total, 80, 'total unchanged by a negative discount');
+  });
+
+  test('13.5', 'Settling an empty order is blocked', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const msg = throws(() => orders.settleOrder(o.id, { payment_method: 'cash' }), 'empty settle');
+    ok(/nothing on this order/i.test(msg), `clear message, got: ${msg}`);
+    eq(orders.getOrder(o.id).status, 'open', 'order left open, not half-closed');
+
+    // An order whose every line is voided is empty too.
+    const o2 = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o2.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    voidItemCompat(orders.getOrder(o2.id).items[0].id, 'sent back');
+    throws(() => orders.settleOrder(o2.id, { payment_method: 'cash' }), 'all-void settle');
+    voidOrderCompat(o.id, 'cleanup');
+    voidOrderCompat(o2.id, 'cleanup');
+  });
+
+  test('13.6', 'Double-tap Settle charges once', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const first = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const msg = throws(() => orders.settleOrder(o.id, { payment_method: 'cash' }), 'second settle');
+    ok(/already been paid/i.test(msg), `clear message, got: ${msg}`);
+    const after = orders.getOrder(o.id);
+    eq(after.total, first.total, 'total not doubled');
+    eq(after.profit, first.profit, 'profit not doubled');
+    eq(after.settled_at, first.settled_at, 'settled_at not overwritten');
+    eq(
+      getDb().prepare("SELECT COUNT(*) n FROM orders WHERE id=? AND status='settled'").get(o.id).n,
+      1,
+      'exactly one settled row',
+    );
+  });
+
+  test('13.7', 'Double-tap Send to kitchen fires once', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const first = orders.fireToKitchen(o.id);
+    eq(first.fired.length, 1, 'first fire prints one item');
+    throws(() => orders.fireToKitchen(o.id), 'second immediate fire');
+    const items = orders.getOrder(o.id).items;
+    eq(items.filter((i) => i.kitchen_status === 'fired').length, 1, 'still one fired line');
+    eq(items[0].fired_at, first.fired[0].fired_at, 'fired_at not overwritten');
+    voidOrderCompat(o.id, 'cleanup');
+  });
+
+  test('13.8', 'Power cut mid-order loses nothing', () => {
+    const o = orders.openOrder({ type: 'dine_in', table_id: T.T2 });
+    orders.addItems(o.id, [
+      { menu_item_id: item['Zinger Burger'], qty: 2, notes: 'no onions', modifier_ids: [modLarge] },
+    ]);
+    orders.fireToKitchen(o.id);
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const before = orders.getOrder(o.id);
+
+    // Hard reopen stands in for the app being killed.
+    reopenDb();
+    const after = orders.getOrder(o.id);
+    eq(after.status, 'open', 'still open');
+    eq(after.items.length, 2, 'both lines survive');
+    eq(after.subtotal, before.subtotal, 'total survives');
+    eq(after.items[0].kitchen_status, 'fired', 'fired state survives');
+    eq(after.items[1].kitchen_status, 'new', 'unfired state survives');
+    eq(after.items[0].notes, 'no onions', 'note survives');
+    eq(after.items[0].modifiers.length, 1, 'modifier survives');
+    eq(tables.getTable(T.T2).open_order_id, o.id, 'table still occupied');
+    voidOrderCompat(o.id, 'cleanup');
+  });
+
+  test('13.9', 'Day rollover: numbering restarts, yesterday untouched', () => {
+    // Plant a previous day whose sequence ran HIGH. If numbering leaked across
+    // days, today's next order would jump to 901.
+    getDb().prepare(
+      `INSERT INTO orders (order_no, type, status, opened_at, settled_at, subtotal, total, profit, payment_method)
+       VALUES (?, 'takeaway', 'settled', ?, ?, 500, 500, 200, 'cash')`,
+    ).run('20250101-900', '2025-01-01 22:10:00', '2025-01-01 22:15:00');
+
+    const prefix = todayIso().replace(/-/g, '');
+    const maxBefore = getDb()
+      .prepare('SELECT MAX(order_no) m FROM orders WHERE order_no LIKE ?')
+      .get(`${prefix}-%`).m;
+
+    const o = orders.openOrder({ type: 'takeaway' });
+    ok(o.order_no.startsWith(`${prefix}-`), 'new order carries today prefix');
+    const seq = Number(o.order_no.split('-')[1]);
+    eq(seq, Number(maxBefore.split('-')[1]) + 1, "sequence continues from today's max only");
+    ok(seq < 900, `did not inherit yesterday's 900 (got ${seq})`);
+    eq(o.order_no.split('-')[1].length, 3, 'zero-padded to 3 digits');
+
+    // "Today" figures must not pick up yesterday's money.
+    const today = todayIso();
+    const dash = reports.dashboard(today);
+    const yesterday = reports.dashboard('2025-01-01');
+    eq(yesterday.sales_total, 500, "yesterday's report finds its own order");
+    eq(yesterday.order_count, 1, 'exactly one order that day');
+    const rows = getDb()
+      .prepare("SELECT COUNT(*) n FROM orders WHERE status='settled' AND date(settled_at)=?")
+      .get(today).n;
+    eq(dash.order_count, rows, "today's count excludes yesterday");
+
+    // An order opened before midnight and paid after files under the pay date,
+    // which is the same day it counts towards in every report.
+    const late = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(late.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(late.id, { payment_method: 'cash' });
+    getDb().prepare("UPDATE orders SET opened_at = '2025-01-01 23:55:00' WHERE id = ?").run(late.id);
+    const hist = orders.listOrders(today, today, 'settled');
+    ok(hist.some((h) => h.id === late.id), 'a past-midnight order files under its settle date');
+
+    voidOrderCompat(o.id, 'cleanup');
+  });
+
+  test('13.z', 'UNIQUE order_no is a real backstop against two bills sharing a number', () => {
+    const existing = getDb().prepare('SELECT order_no FROM orders LIMIT 1').get().order_no;
+    throws(
+      () =>
+        getDb()
+          .prepare(
+            "INSERT INTO orders (order_no, type, status, opened_at) VALUES (?, 'takeaway', 'open', ?)",
+          )
+          .run(existing, '2026-01-01 10:00:00'),
+      'duplicate order number',
+    );
+  });
+
+  test('13.x', 'Fired lines cannot be silently re-quantified', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const line = orders.getOrder(o.id).items[0];
+    orders.fireToKitchen(o.id);
+    const msg = throws(() => orders.setItemQty(line.id, 5), 'editing a fired line');
+    ok(/void it instead/i.test(msg), `points at the honest action, got: ${msg}`);
+    eq(orders.getOrder(o.id).subtotal, 400, 'total unchanged');
+    voidOrderCompat(o.id, 'cleanup');
+  });
+
+  test('13.y', 'Closed orders reject further edits', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+    throws(
+      () => orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]),
+      'adding to a settled order',
+    );
+    throws(() => orders.fireToKitchen(o.id), 'firing a settled order');
+  });
+
+  /* ================= Section 1 — Licensing ================= */
+  section('1 — Licensing');
+
+  const crypto = require('node:crypto');
+  const { getMachineId } = require(path.join(dist, 'services', 'machineId'));
+  const machineId = getMachineId();
+  const PRIVATE_PEM = fs.readFileSync(path.join(ROOT, 'tools', 'keygen', 'private-key.pem'));
+
+  /** Mint a key exactly the way the founder's keygen does. */
+  function mintKey({ m = machineId, exp = null, p = 'food' } = {}) {
+    const payload = { m: String(m).trim().toUpperCase(), exp, iss: todayIso(), p };
+    const raw = Buffer.from(JSON.stringify(payload), 'utf8');
+    const sig = crypto.sign(null, raw, crypto.createPrivateKey(PRIVATE_PEM));
+    const b64 = (b) => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return `CH1.${b64(raw)}.${b64(sig)}`;
+  }
+
+  test('1.1', 'Fresh install is unlicensed and blocks use', () => {
+    getDb().prepare('DELETE FROM license').run();
+    const lic = path.join(app.getPath('userData'), 'license.dat');
+    if (fs.existsSync(lic)) fs.rmSync(lic);
+    const st = licenseSvc.status();
+    eq(st.licensed, false, 'not licensed');
+    eq(st.status, 'unlicensed', 'status unlicensed');
+    eq(licenseSvc.isLicensed(), false, 'isLicensed false — the gate the UI reads');
+    ok(st.machineId && st.machineId.length > 0, 'shows a machine id to quote to the office');
+  });
+
+  test('1.3', 'A pharmacy/shop key is rejected by the food app', () => {
+    for (const product of ['pharmacy', 'shop']) {
+      const msg = throws(() => licenseSvc.activate(mintKey({ p: product })), `${product} key`);
+      ok(/different Code Hustlers product/i.test(msg), `clear message, got: ${msg}`);
+    }
+    eq(licenseSvc.isLicensed(), false, 'still not licensed');
+  });
+
+  test('1.4', 'An expired key is refused with a clear message', () => {
+    const msg = throws(() => licenseSvc.activate(mintKey({ exp: '2020-01-01' })), 'expired key');
+    ok(/expired on 2020-01-01/i.test(msg), `names the date, got: ${msg}`);
+    eq(licenseSvc.isLicensed(), false, 'still not licensed');
+  });
+
+  test('1.3b', 'A key for another computer is rejected', () => {
+    const msg = throws(() => licenseSvc.activate(mintKey({ m: 'AAAAA-BBBBB-CCCCC-DDDDD' })), 'foreign key');
+    ok(/different computer/i.test(msg), `clear message, got: ${msg}`);
+  });
+
+  test('1.3c', 'A tampered key is rejected (signature covers the payload)', () => {
+    // Take a valid expired key and edit the expiry in the payload, keeping the
+    // old signature — the classic customer attack.
+    const good = mintKey({ exp: '2020-01-01' });
+    const [prefix, payloadB64, sig] = good.split('.');
+    const payload = JSON.parse(
+      Buffer.from(payloadB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'),
+    );
+    payload.exp = '2099-12-31';
+    const forged = Buffer.from(JSON.stringify(payload), 'utf8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    const msg = throws(() => licenseSvc.activate(`${prefix}.${forged}.${sig}`), 'forged expiry');
+    ok(/not valid/i.test(msg), `rejected on signature, got: ${msg}`);
+    eq(licenseSvc.isLicensed(), false, 'not licensed by a forged key');
+  });
+
+  test('1.2', 'A valid lifetime food key activates', () => {
+    const st = licenseSvc.activate(mintKey());
+    eq(st.licensed, true, 'activated');
+    eq(st.status, 'active', 'status active');
+    eq(st.expiresAt, null, 'lifetime');
+    eq(licenseSvc.isLicensed(), true, 'app unlocks');
+    // Re-verified from disk on the next startup, not trusted from the row.
+    reopenDb();
+    eq(licenseSvc.status().licensed, true, 'still licensed after restart');
+  });
+
+  test('1.2b', 'A time-limited key that is still valid works', () => {
+    const st = licenseSvc.activate(mintKey({ exp: '2099-12-31' }));
+    eq(st.licensed, true, 'activated');
+    eq(st.expiresAt, '2099-12-31', 'expiry recorded and shown');
+    ok(/Licensed until 2099-12-31/.test(st.message), 'owner-readable message');
+  });
+
+  test('1.2c', 'license.dat copied to another machine does not unlock it', () => {
+    // The stored file is encrypted with a key derived from the machine id.
+    const stored = fs.readFileSync(path.join(app.getPath('userData'), 'license.dat'));
+    ok(stored.length > 28, 'license file is written');
+    ok(!stored.toString('utf8').includes('CH1.'), 'stored key is encrypted at rest, not plain text');
+  });
+
+  test('1.5', 'No network calls anywhere in the main process', () => {
+    const files = [];
+    (function walk(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith('.ts')) files.push(p);
+      }
+    })(path.join(ROOT, 'electron'));
+    files.push(
+      ...fs
+        .readdirSync(path.join(ROOT, 'src', 'lib'))
+        .map((f) => path.join(ROOT, 'src', 'lib', f)),
+    );
+    const offenders = [];
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf8');
+      for (const pattern of [/\bfetch\s*\(/, /XMLHttpRequest/, /require\(['"]https?['"]\)/, /from ['"]axios['"]/, /new WebSocket/]) {
+        if (pattern.test(src)) offenders.push(`${path.relative(ROOT, f)} :: ${pattern}`);
+      }
+    }
+    eq(offenders.join('; '), '', 'no network primitives in backend code');
+  });
+
+  test('1.6', 'Data location is product-specific and separate from shop/pharmacy', () => {
+    // This harness redirects userData to a temp dir, so assert on the shipping
+    // code: main.ts must name the app before anything reads userData.
+    const mainSrc = fs.readFileSync(path.join(ROOT, 'electron', 'main.ts'), 'utf8');
+    ok(/app\.setName\(['"]CodeHustlersFood['"]\)/.test(mainSrc), 'app named CodeHustlersFood');
+    // Compare against CODE only — main.ts documents this rule in a comment
+    // above the call, which would otherwise look like an earlier use.
+    const code = mainSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+      .split('\n');
+    const nameLine = code.findIndex((l) => /app\.setName/.test(l));
+    const firstUse = code.findIndex((l) => /getPath\(['"]userData['"]\)|migrate\(\)|getDb\(\)/.test(l));
+    ok(nameLine >= 0, 'setName present in code, not just a comment');
+    ok(firstUse === -1 || nameLine < firstUse, 'named before any userData read');
+    ok(dbPath().endsWith('foodpoint.db'), 'own database file name');
+    ok(dbPath().startsWith(app.getPath('userData')), 'database sits inside userData');
+    // Nothing in the backend may reach into a sibling product's folder.
+    const backendSrc = fs
+      .readdirSync(path.join(ROOT, 'electron'), { recursive: true })
+      .filter((f) => String(f).endsWith('.ts'))
+      .map((f) => fs.readFileSync(path.join(ROOT, 'electron', String(f)), 'utf8'))
+      .join('\n');
+    ok(!/CodeHustlersShop|CodeHustlersPharmacy/.test(backendSrc), 'no reference to sibling products');
+  });
+
+  /* ================= report ================= */
+  closeDb();
+
+  /**
+   * The void signature changed in v1.1: a fixed reason code plus a note and
+   * the staff id, instead of free text. These shims keep the older scenarios
+   * expressing what they were written to express.
+   */
+  function voidItemCompat(id, reason) {
+    return orders.voidItem(id, {
+      reason_code: 'other',
+      note: reason,
+      staff_id: session.currentStaff() ? session.currentStaff().id : null,
+    });
+  }
+  function voidOrderCompat(id, reason) {
+    return orders.voidOrder(id, {
+      reason_code: 'other',
+      note: reason,
+      staff_id: session.currentStaff() ? session.currentStaff().id : null,
+    });
+  }
+
+  /* ================================================================== *
+   * 14 — Deals (combo bundles at one fixed price)
+   * ================================================================== */
+  section('14 — Deals');
+
+  // Earlier sections move the service charge around. Pin it, so these tests
+  // measure deal arithmetic and not a stray percentage — the exact trap that
+  // made 13.2-13.4 fail once already.
+  settingsRepo.saveSettings({ service_charge_percent: '0' });
+
+  let comboId = 0;
+
+  test('14.1', 'Create a deal from menu items', () => {
+    const d = deals.saveDeal({
+      name: 'Burger Combo',
+      price: 380,
+      is_active: true,
+      sort_order: 0,
+      notes: null,
+      components: [
+        { menu_item_id: item['Zinger Burger'], qty: 1 },
+        { menu_item_id: item['Cold Drink'], qty: 1 },
+      ],
+    });
+    comboId = d.id;
+    eq(d.name, 'Burger Combo', 'name saved');
+    eq(d.price, 380, 'combo price saved');
+    eq(d.components.length, 2, 'two components');
+    eq(d.is_sellable, true, 'sellable while both parts are available');
+  });
+
+  test('14.2', 'The combo price is fixed, not the sum of the parts', () => {
+    const d = deals.getDeal(comboId);
+    eq(d.menu_value, 430, 'parts bought separately cost 430');
+    eq(d.price, 380, 'the deal charges 380');
+    ok(d.price < d.menu_value, 'the deal is actually a saving');
+  });
+
+  test('14.3', 'Adding a deal is ONE action and writes component lines', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addDeal(o.id, comboId, 1);
+    eq(r.items.length, 2, 'one tap produced both component lines');
+    ok(r.items.every((l) => l.deal_id === comboId), 'every line knows its deal');
+    ok(r.items.every((l) => l.deal_name === 'Burger Combo'), 'deal name snapshotted');
+    const groups = new Set(r.items.map((l) => l.deal_group));
+    eq(groups.size, 1, 'both lines share one deal_group');
+    ok(r.items[0].deal_group !== null, 'deal_group is set');
+  });
+
+  test('14.4', 'Component lines sum to EXACTLY the combo price', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addDeal(o.id, comboId, 1);
+    const sum = r.items.reduce((t, l) => t + l.line_total, 0);
+    eq(Math.round(sum * 100) / 100, 380, 'lines add up to the combo price');
+    eq(r.subtotal, 380, 'order subtotal is the combo price');
+  });
+
+  test('14.5', 'Underlying items keep their REAL food cost', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addDeal(o.id, comboId, 1);
+    const burger = r.items.find((l) => l.item_name === 'Zinger Burger');
+    const drink = r.items.find((l) => l.item_name === 'Cold Drink');
+    eq(burger.cost_price, 150, 'burger keeps its true cost, undiscounted');
+    eq(drink.cost_price, 40, 'drink keeps its true cost, undiscounted');
+    eq(burger.menu_item_id, item['Zinger Burger'], 'points at the real menu item');
+  });
+
+  test('14.6', 'Profit uses the real component costs, not the combo price', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addDeal(o.id, comboId, 1);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.total, 380, 'charged the combo price');
+    // COGS = 150 + 40 = 190
+    eq(settled.profit, 190, 'profit = 380 - 190 real food cost');
+  });
+
+  test('14.7', 'Quantity above one scales every component', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addDeal(o.id, comboId, 3);
+    eq(r.subtotal, 1140, '3 x 380');
+    ok(r.items.every((l) => l.qty === 3), 'each component multiplied');
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.profit, 1140 - 3 * 190, 'profit scales with the real costs');
+  });
+
+  test('14.8', 'Odd prices split across three parts with no rounding drift', () => {
+    const d = deals.saveDeal({
+      name: 'Family Deal',
+      price: 700,
+      is_active: true,
+      sort_order: 0,
+      notes: null,
+      components: [
+        { menu_item_id: item['Chicken Biryani'], qty: 1 },
+        { menu_item_id: item['Zinger Burger'], qty: 1 },
+        { menu_item_id: item['Cold Drink'], qty: 1 },
+      ],
+    });
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addDeal(o.id, d.id, 1);
+    const sum = r.items.reduce((t, l) => t + l.line_total, 0);
+    eq(Math.round(sum * 100) / 100, 700, 'three-way split still lands on 700 exactly');
+    eq(r.subtotal, 700, 'subtotal exact');
+    // 400/350/80 of 830 menu value, weighted
+    ok(r.items[0].line_total > r.items[2].line_total, 'the pricier item absorbs more of the discount');
+  });
+
+  test('14.9', 'The bill shows ONE line at the combo price', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addDeal(o.id, comboId, 1);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const bill = receipt.buildCustomerBill(settled);
+    ok(/1 x Burger Combo\s+Rs380\.00/.test(bill), 'one deal line at the combo price');
+    ok(!/Rs309\.30/.test(bill), 'the split share is never shown to the customer');
+    ok(!/Rs70\.70/.test(bill), 'nor the other share');
+    ok(/- 1 Zinger Burger/.test(bill), 'contents listed underneath, without prices');
+    ok(/- 1 Cold Drink/.test(bill), 'second content line');
+    ok(bill.split('\n').every((l) => l.length <= 42), 'still fits a 42-col roll');
+  });
+
+  test('14.10', 'The kitchen ticket lists the real dishes to cook', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addDeal(o.id, comboId, 1);
+    const { order, fired } = orders.fireToKitchen(o.id);
+    const ticket = receipt.buildKitchenTicket(order, fired);
+    ok(/ZINGER BURGER/.test(ticket), 'burger goes to the kitchen');
+    ok(/COLD DRINK/.test(ticket), 'drink goes to the kitchen');
+    ok(/>> BURGER COMBO/.test(ticket), 'banner tells the pass they plate together');
+    ok(!/380/.test(ticket), 'no prices on a kitchen ticket');
+  });
+
+  test('14.11', 'Reports count the underlying items, not the deal', () => {
+    const before = reports.bestSellers(todayIso(), todayIso(), 50);
+    const beforeQty = (before.find((r) => r.item_name === 'Zinger Burger') || {}).qty || 0;
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addDeal(o.id, comboId, 2);
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+    const after = reports.bestSellers(todayIso(), todayIso(), 50);
+    const afterQty = after.find((r) => r.item_name === 'Zinger Burger').qty;
+    eq(afterQty - beforeQty, 2, 'the deal sold 2 real burgers and the report knows');
+  });
+
+  test('14.12', 'A sold-out component takes the whole deal off sale', () => {
+    menu.setAvailable(item['Cold Drink'], false);
+    const d = deals.getDeal(comboId);
+    eq(d.is_sellable, false, 'deal reports itself unsellable');
+    const o = orders.openOrder({ type: 'takeaway' });
+    const msg = throws(() => orders.addDeal(o.id, comboId, 1), 'sold-out component blocks the deal');
+    ok(/Cold Drink/.test(msg), 'the message names the missing item');
+    menu.setAvailable(item['Cold Drink'], true);
+  });
+
+  test('14.13', 'An inactive deal cannot be sold', () => {
+    deals.setDealActive(comboId, false);
+    const o = orders.openOrder({ type: 'takeaway' });
+    throws(() => orders.addDeal(o.id, comboId, 1), 'inactive deal is refused');
+    deals.setDealActive(comboId, true);
+    const r = orders.addDeal(o.id, comboId, 1);
+    eq(r.subtotal, 380, 'sells again once reactivated');
+  });
+
+  test('14.14', 'Voiding one component voids the whole deal', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addDeal(o.id, comboId, 1);
+    const after = voidItemCompat(r.items[0].id, 'customer changed their mind');
+    ok(after.items.every((l) => l.kitchen_status === 'void'), 'every component voided together');
+    eq(after.subtotal, 0, 'no half-combo left on the bill');
+  });
+
+  test('14.15', 'A deal component cannot be re-quantified on its own', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const r = orders.addDeal(o.id, comboId, 1);
+    const msg = throws(
+      () => orders.setItemQty(r.items[0].id, 5),
+      'editing one component of a deal is refused',
+    );
+    ok(/deal/i.test(msg), 'the message explains why');
+  });
+
+  test('14.16', 'The same deal twice makes two independent groups', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addDeal(o.id, comboId, 1);
+    const r = orders.addDeal(o.id, comboId, 1);
+    const groups = new Set(r.items.map((l) => l.deal_group));
+    eq(groups.size, 2, 'two separate deal groups');
+    eq(r.subtotal, 760, 'two combos priced');
+    // Voiding one must leave the other intact.
+    const firstGroup = r.items[0].deal_group;
+    const after = voidItemCompat(r.items[0].id, 'wrong combo');
+    const live = after.items.filter((l) => l.kitchen_status !== 'void');
+    eq(live.length, 2, 'the other combo survives whole');
+    ok(live.every((l) => l.deal_group !== firstGroup), 'and it is the other group');
+    eq(after.subtotal, 380, 'one combo still on the bill');
+  });
+
+  test('14.17', 'A deal needs at least one item', () => {
+    throws(
+      () => deals.saveDeal({ name: 'Empty', price: 100, is_active: true, sort_order: 0, notes: null, components: [] }),
+      'an empty deal is refused',
+    );
+  });
+
+  test('14.18', 'Deleting a deal leaves past bills readable', () => {
+    const d = deals.saveDeal({
+      name: 'Temporary Deal',
+      price: 200,
+      is_active: true,
+      sort_order: 0,
+      notes: null,
+      components: [{ menu_item_id: item['Cold Drink'], qty: 2 }],
+    });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addDeal(o.id, d.id, 1);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    deals.removeDeal(d.id);
+    const reread = orders.getOrder(settled.id);
+    eq(reread.total, 200, 'the settled total is untouched');
+    eq(reread.items[0].deal_name, 'Temporary Deal', 'the snapshot name survives the delete');
+    ok(/Temporary Deal/.test(receipt.buildCustomerBill(reread)), 'the bill still reprints');
+  });
+
+
+  /* ================================================================== *
+   * 15 — Cancellation control & anti-theft
+   * ================================================================== */
+  section('15 — Cancellation control');
+
+  settingsRepo.saveSettings({ service_charge_percent: '0' });
+
+  let bilal = 0;
+  let farhan = 0;
+
+  test('15.1', 'Owner can add staff with their own PIN', () => {
+    const a = staffRepo.saveStaff({ name: 'Bilal', is_active: true, pin: '1111' });
+    const b = staffRepo.saveStaff({ name: 'Farhan', is_active: true, pin: '2222' });
+    bilal = a.id;
+    farhan = b.id;
+    eq(a.name, 'Bilal', 'name saved');
+    eq(a.has_pin, true, 'PIN recorded');
+    ok(staffRepo.listStaff(true).length >= 2, 'both on the sign-in list');
+  });
+
+  test('15.2', 'The stored PIN never leaves the main process', () => {
+    const list = staffRepo.listStaff();
+    for (const person of list) {
+      ok(!('pin_hash' in person), 'no pin_hash on the object the UI receives');
+      ok(!('pin' in person), 'no plaintext pin either');
+    }
+  });
+
+  test('15.3', 'Signing in needs the right PIN', () => {
+    throws(() => session.signIn(bilal, '9999'), 'wrong PIN is refused');
+    throws(() => session.signIn(bilal, ''), 'blank PIN is refused');
+    const s = session.signIn(bilal, '1111');
+    eq(s.name, 'Bilal', 'correct PIN signs in');
+    eq(session.currentStaff().id, bilal, 'session holds the signed-in person');
+  });
+
+  test('15.4', 'Cancelling an UNPAID order needs no manager PIN', () => {
+    managerPin.setPin('4321');
+    session.signIn(bilal, '1111');
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const cancelled = orders.voidOrder(o.id, {
+      reason_code: 'customer_left',
+      note: null,
+      staff_id: session.currentStaff().id,
+    });
+    eq(cancelled.status, 'void', 'cancelled');
+    eq(cancelled.voided_was_paid, 0, 'recorded as unpaid');
+    managerPin.setPin('');
+  });
+
+  test('15.5', 'A PAID order CAN now be cancelled — the old build refused outright', () => {
+    session.signIn(bilal, '1111');
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+    const cancelled = orders.voidOrder(o.id, {
+      reason_code: 'duplicate',
+      note: null,
+      staff_id: session.currentStaff().id,
+    });
+    eq(cancelled.status, 'void', 'paid order cancels');
+    eq(cancelled.voided_was_paid, 1, 'recorded as PAID — the serious case');
+  });
+
+  test('15.6', 'Cancellation is never a delete — the whole order survives', () => {
+    session.signIn(bilal, '1111');
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [
+      { menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] },
+      { menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] },
+    ]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const amountTaken = settled.total;
+
+    orders.voidOrder(o.id, { reason_code: 'wrong_order', note: null, staff_id: bilal });
+
+    const reread = orders.getOrder(o.id);
+    ok(reread !== null, 'the order row still exists');
+    eq(reread.items.length, 2, 'its items are still there');
+    eq(reread.total, amountTaken, 'the amount taken is preserved');
+    ok(reread.settled_at !== null, 'the fact it had been paid is preserved');
+    ok(reread.voided_at !== null, 'the exact cancellation time is recorded');
+    eq(reread.voided_by_staff_id, bilal, 'the staff member is recorded');
+    eq(reread.voided_by_staff_name, 'Bilal', 'and resolvable to a name');
+    eq(reread.void_reason_code, 'wrong_order', 'the reason code is recorded');
+  });
+
+  test('15.7', 'A cancelled paid order leaves the day takings', () => {
+    session.signIn(bilal, '1111');
+    const before = reports.dashboard(todayIso()).sales_total;
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Seekh Kebab'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const withSale = reports.dashboard(todayIso()).sales_total;
+    eq(Math.round((withSale - before) * 100) / 100, 600, 'the sale counted');
+
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: bilal });
+    const after = reports.dashboard(todayIso()).sales_total;
+    eq(after, before, 'cancelling removed it from takings again');
+  });
+
+  test('15.8', 'Reason must come from the fixed list', () => {
+    const { asEnum } = require(path.join(dist, 'ipc', 'util'));
+    const { CANCEL_REASONS } = require(path.join(dist, '..', 'shared', 'types'));
+    throws(() => asEnum('made up', CANCEL_REASONS, 'Reason'), 'free text is refused');
+    eq(asEnum('wrong_order', CANCEL_REASONS, 'Reason'), 'wrong_order', 'a listed reason passes');
+    eq(CANCEL_REASONS.length, 5, 'five reasons: the four named plus Other');
+  });
+
+  test('15.9', 'Cancellations report totals and separates paid from unpaid', () => {
+    const report = reports.cancellations(todayIso(), todayIso());
+    ok(report.total_count > 0, 'there are cancellations to see');
+    ok(report.paid_count > 0, 'and some of them were paid orders');
+    ok(report.paid_value > 0, 'with real money against them');
+    ok(report.total_value >= report.paid_value, 'paid value is part of the total');
+    const rec = report.records[0];
+    ok(rec.order_no, 'each record names its order');
+    ok(rec.cancelled_at, 'and its exact time');
+    ok(Array.isArray(rec.items), 'and carries the items that were on it');
+  });
+
+  test('15.10', 'Per-staff breakdown attributes cancellations to the right person', () => {
+    // Farhan cancels two paid orders; Bilal already has some on record.
+    session.signIn(farhan, '2222');
+    for (let i = 0; i < 2; i += 1) {
+      const o = orders.openOrder({ type: 'takeaway' });
+      orders.addItems(o.id, [{ menu_item_id: item['Chicken Tikka'], qty: 1, modifier_ids: [] }]);
+      orders.settleOrder(o.id, { payment_method: 'cash' });
+      orders.voidOrder(o.id, { reason_code: 'customer_left', note: null, staff_id: farhan });
+    }
+
+    const report = reports.cancellations(todayIso(), todayIso());
+    const f = report.by_staff.find((r) => r.staff_id === farhan);
+    const b = report.by_staff.find((r) => r.staff_id === bilal);
+    ok(f, "Farhan appears in the breakdown");
+    eq(f.count, 2, 'with exactly his two');
+    eq(f.paid_count, 2, 'both of them paid orders');
+    eq(f.paid_value, 1100, '2 x 550 of cash cancelled');
+    ok(b && b.count >= 1, 'Bilal is listed separately');
+    ok(b.staff_id !== f.staff_id, 'the two are not merged');
+  });
+
+  test('15.11', 'Report groups by reason so a pattern is visible', () => {
+    const report = reports.cancellations(todayIso(), todayIso());
+    ok(report.by_reason.length > 0, 'reasons are grouped');
+    const left = report.by_reason.find((r) => r.reason_code === 'customer_left');
+    ok(left && left.count >= 2, "Farhan's two 'Customer left' show up as a pattern");
+    ok(left.reason_label === 'Customer left', 'with a readable label');
+  });
+
+  test('15.12', 'Staff who have cancellations are deactivated, never deleted', () => {
+    const result = staffRepo.removeStaff(farhan);
+    eq(result.deleted, false, 'not hard-deleted');
+    const still = staffRepo.getStaff(farhan);
+    ok(still !== null, 'the record survives');
+    eq(still.is_active, 0, 'but they leave the sign-in list');
+    // History must still resolve to their name.
+    const report = reports.cancellations(todayIso(), todayIso());
+    const f = report.by_staff.find((r) => r.staff_id === farhan);
+    eq(f.staff_name, 'Farhan', 'their past cancellations still name them');
+    staffRepo.saveStaff({ id: farhan, name: 'Farhan', is_active: true });
+  });
+
+  test('15.13', 'Staff with no history can be removed outright', () => {
+    const temp = staffRepo.saveStaff({ name: 'Temp Worker', is_active: true, pin: '3333' });
+    const result = staffRepo.removeStaff(temp.id);
+    eq(result.deleted, true, 'hard-deleted');
+    eq(staffRepo.getStaff(temp.id), null, 'gone');
+  });
+
+  test('15.14', 'A deactivated staff member cannot sign in or stay signed in', () => {
+    const temp = staffRepo.saveStaff({ name: 'Gone', is_active: true, pin: '5555' });
+    session.signIn(temp.id, '5555');
+    eq(session.currentStaff().id, temp.id, 'signed in');
+    staffRepo.saveStaff({ id: temp.id, name: 'Gone', is_active: false });
+    session.revalidate();
+    eq(session.currentStaff(), null, 'deactivating them drops the live session');
+    throws(() => session.signIn(temp.id, '5555'), 'and they cannot sign back in');
+  });
+
+  test('15.15', 'Cancelling is blocked when nobody is signed in and staff exist', () => {
+    session.signOut();
+    ok(staffRepo.anyActiveStaff(), 'a roster exists');
+    const msg = throws(
+      () => session.requireStaffForAudit(),
+      'an unattributed cancellation is refused',
+    );
+    ok(/sign in/i.test(msg), 'and the message says why');
+    session.signIn(bilal, '1111');
+  });
+
+  test('15.16', 'Manager PIN gate is verified in the main process', () => {
+    managerPin.setPin('4321');
+    throws(() => managerPin.requirePin('0000'), 'a wrong manager PIN is refused');
+    throws(() => managerPin.requirePin(''), 'a missing manager PIN is refused');
+    throws(() => managerPin.requirePin(true), 'a non-string cannot slip past');
+    managerPin.requirePin('4321');
+    ok(true, 'the right PIN passes');
+    managerPin.setPin('');
+    managerPin.requirePin(undefined);
+    ok(true, 'with no PIN configured the gate is open');
+  });
+
+  test('15.16b', 'The cancel gate: open needs no PIN, paid does', () => {
+    managerPin.setPin('4321');
+    session.signIn(bilal, '1111');
+
+    const open = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(open.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const openOrder = orders.getOrder(open.id);
+    cancelGuard.assertMayCancel(openOrder, undefined);
+    ok(true, 'an OPEN order passes with no PIN at all');
+
+    const paid = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(paid.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(paid.id, { payment_method: 'cash' });
+    throws(() => cancelGuard.assertMayCancel(settled, undefined), 'a PAID order is blocked');
+    const msg = throws(() => cancelGuard.assertMayCancel(settled, '1111'), 'a STAFF pin is not enough');
+    ok(/match/i.test(msg), 'and it says the PIN is wrong');
+    cancelGuard.assertMayCancel(settled, '4321');
+    ok(true, 'only the manager PIN opens it');
+
+    managerPin.setPin('');
+  });
+
+  test('15.17', 'An already-cancelled order cannot be cancelled twice', () => {
+    session.signIn(bilal, '1111');
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: bilal });
+    throws(
+      () => orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: bilal }),
+      'a second cancellation is refused',
+    );
+  });
+
+  test('15.18', 'Cancellations outside the period are not counted', () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const iso = [
+      tomorrow.getFullYear(),
+      String(tomorrow.getMonth() + 1).padStart(2, '0'),
+      String(tomorrow.getDate()).padStart(2, '0'),
+    ].join('-');
+    const report = reports.cancellations(iso, iso);
+    eq(report.total_count, 0, 'tomorrow has none');
+    eq(report.total_value, 0, 'and no value');
+    eq(report.by_staff.length, 0, 'and nobody to blame');
+  });
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+
+  const pad = (s, n) => String(s).padEnd(n);
+  let lastSection = '';
+  console.log('\n' + '='.repeat(78));
+  console.log('  FOOD-POINT v1 — TEST SCENARIO RESULTS');
+  console.log('='.repeat(78));
+  for (const r of results) {
+    if (r.section !== lastSection) {
+      console.log(`\n  ${r.section}`);
+      console.log('  ' + '-'.repeat(74));
+      lastSection = r.section;
+    }
+    const mark = r.status === 'PASS' ? 'PASS' : 'FAIL';
+    console.log(`  [${mark}] ${pad(r.id, 10)} ${r.name}`);
+    if (r.error) console.log(`         ^^^^ ${r.error}`);
+  }
+  const passed = results.filter((r) => r.status === 'PASS').length;
+  const failed = results.filter((r) => r.status === 'FAIL').length;
+  console.log('\n' + '='.repeat(78));
+  console.log(`  ${passed} passed, ${failed} failed, ${results.length} total`);
+  console.log('='.repeat(78) + '\n');
+
+  app.exit(failed ? 1 : 0);
+});

@@ -1,6 +1,7 @@
 import { handle, asDate, asNumber } from './util';
 import {
   bestSellers,
+  cancellations,
   dashboard,
   range,
   salesByHour,
@@ -36,6 +37,12 @@ export function registerReportHandlers(): void {
   handle('reports:byHour', (_e, input) => {
     const raw = (input ?? {}) as Record<string, unknown>;
     return salesByHour(asDate(raw.from, 'From date'), asDate(raw.to, 'To date'));
+  });
+
+  /** The owner's accountability view: who cancelled what, and how much. */
+  handle('reports:cancellations', (_e, input) => {
+    const raw = (input ?? {}) as Record<string, unknown>;
+    return cancellations(asDate(raw.from, 'From date'), asDate(raw.to, 'To date'));
   });
 
   handle('reports:voids', (_e, input) => {

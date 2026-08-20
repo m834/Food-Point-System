@@ -31,7 +31,7 @@
 | Billing (single-shot sale) | **CHANGED → Orders** | An order stays **open** while the customer eats, then settles. Many orders open at once. |
 | Expiry / batch / low-stock alerts | **DROPPED** | Not the food-point's job. A food point sells cooked/made-to-order food; there is no per-item expiry to track. (Optional light stock is a future item, not v1.) |
 | Dine-in **Tables**, **Order types**, **Kitchen tickets**, **Modifiers** | **NEW** | Food-only modules. |
-| Colour theme | **CHANGED** | Warm hospitality identity, not navy/orange or teal/blue. |
+| Colour theme | **CHANGED (v2)** | Dark navy base + gradient accents, glass on dashboard/login only. Superseded the v1 warm-hospitality palette on 2026-08-20 — see §6.1. |
 
 ---
 
@@ -199,6 +199,12 @@ The shop had `items` and a one-shot `invoices`. The food-point replaces both: a 
 | name | TEXT | snapshot at add time |
 | price_delta | REAL | snapshot at add time — already folded into `order_items.line_total` |
 
+**deals** / **deal_items** *(NEW — added 2026-08-20)*
+
+A named bundle of menu items sold at ONE fixed combo price. `deals` holds `name`, `price` (the combo price — deliberately **not** the sum of the parts), `is_active`, `sort_order`, `notes`; `deal_items` holds `deal_id`, `menu_item_id`, `qty`.
+
+> **A deal is stored as its component items, never as a single opaque product.** This app tracks no stock, so "the underlying items must still be deducted" means every consumer of an order line must still see the real food. Adding a deal writes one `order_items` row per component — all stamped with the same `deal_group`, plus a snapshotted `deal_name` — and the combo price is spread across those rows so their `line_total`s sum to exactly the deal price. Profit therefore uses the true per-item `cost_price`, best-sellers count the real dishes, and the kitchen ticket lists what to cook. The customer bill collapses the group back into one line. `order_items` gains three nullable columns for this: `deal_id`, `deal_group`, `deal_name`.
+
 **settings** — same key/value store, food additions: `business_name`, `business_address`, `business_phone`, `printer_customer`, `printer_kitchen`, `enable_tables` (0/1), `enable_kitchen_print` (0/1), `service_charge_percent` (default 0), `currency_symbol`, `manager_pin` (see below).
 
 > **The one permission in v1: a manager PIN.** §5.3 calls voids a permissioned action, so v1 needs something to check against — but a full users/roles/login system is out of scope and would slow the counter down. The whole model is a single optional 4-digit `manager_pin` in settings: **if it is set, voiding an item or an order prompts for it; if it is blank, voids are open.** Nothing else in the app is gated. The PIN is stored hashed, verified in the main process (never compared in the renderer), and the void proceeds only on a successful check. Owners who don't want the friction leave it empty.
@@ -252,6 +258,12 @@ Speed is everything. Touch-first.
 - **Void** an item or a whole order with a reason — the reason is required and stored on the row (`void_reason` + `voided_at`), which is what the voids report reads. Gated by the `manager_pin` when one is set (§4).
 - Reprint a bill; resume any open order.
 
+### 5.3b Deals — NEW (added 2026-08-20)
+- **Admin screen** (`/deals/`): create / edit / delete a deal — name, the items it contains (with quantities), the combo price, and an active/inactive toggle. Shows what the parts cost separately and the resulting saving, so a deal cannot be priced above its own ingredients by accident.
+- **On the order screen:** deals lead the item grid and own a **Deals** tab. **One tap adds the whole deal**, and it shows as a **single line at the combo price** — not the separate items added up.
+- **A sold-out component takes the whole deal off sale.** Voiding a deal voids the bundle; a component's quantity cannot be edited on its own.
+- Fully offline like everything else.
+
 ### 5.4 Tables / floor — NEW (dine-in; toggleable)
 - A simple grid of tables showing **free / occupied** and the running total on each occupied table.
 - Tap a free table → start its order; tap an occupied one → resume.
@@ -290,35 +302,52 @@ Business name/address/phone (printed on the bill), **customer printer** + **kitc
 
 **Same discipline as the other two** — calm, fast, tabular numbers, big totals, dark sidebar + light workspace, keyboard/touch-first. **Everything is reused EXCEPT the palette**, which is a distinct **warm hospitality** identity so the food product has its own face.
 
-**Why this theme:** shop is cool navy (retail), pharmacy is clinical teal (health). A food point should feel **warm, appetising, and inviting** — so we use a **deep espresso sidebar on a warm-paper workspace, with a confident tomato accent.** The warm background alone makes it feel different from the cool backgrounds of the other two the moment it opens.
+**Why this theme (v2):** the product needed to look more premium than the cheap competition it sits beside. A **dark navy shell with gradient accents and glass depth** does that, while the **warm accent** (kept from v1) stops it reading as generic corporate software. The espresso/warm-paper surfaces of v1 are superseded — see §6.1.
 
-### 6.1 Colour tokens (use these exact values — this is the food palette)
+### 6.1 Colour tokens (v2 — dark navy + glass)
+
+> **Superseded, 2026-08-20.** v1 shipped a warm espresso/tomato palette. The founder replaced it with a **dark navy base and gradient accents** to lift the product above cheaper competitors. The tomato accent is *kept* as the action colour — warm against cool navy is what stops a food app reading as corporate software. Do not revert to the espresso surfaces.
+
+**Colours live in exactly one place: `src/app/globals.css` `:root`.** Nine values control the whole app; everything else is derived from them with `color-mix()`. There are no colour literals anywhere else in the CSS and none in any `.tsx`. Changing those nine reskins every screen — that is the white-labelling contract, and it must not be broken by adding a hex value to a component.
 
 ```css
 :root {
-  /* Brand & structure — warm hospitality */
-  --brand-espresso:       #2B211C;  /* side nav, headers — deep warm espresso */
-  --brand-espresso-hover: #201813;
-  --accent:               #E24B32;  /* primary actions: Send to kitchen, Charge — appetising tomato */
-  --accent-hover:         #C43D28;
+  /* Brand — a deep navy shell (space-separated channels, so glass and
+     gradient layers can vary alpha without a second copy of each colour) */
+  --brand-deep-rgb:  9 20 36;    /* sidebar + dashboard base */
+  --brand-mid-rgb:  18 40 71;    /* gradient partner */
+  --brand-soft-rgb: 32 66 110;   /* lifted navy: borders/hover inside dark */
 
-  /* Surfaces — warm, not cool */
-  --bg:                   #FAF7F3;  /* warm-paper workspace */
-  --surface:              #FFFFFF;
-  --border:               #ECE4DB;
+  /* Primary action + its gradient partner */
+  --accent-rgb:    232 92 54;    /* Charge, Send to kitchen */
+  --accent-2-rgb:  245 165 36;
 
-  /* Text */
-  --text:                 #241E1B;
-  --text-muted:           #6E635C;
+  /* Semantic — meaning only, never decoration */
+  --success-rgb:   34 168 106;   /* money, paid, profit */
+  --warning-rgb:  214 152 12;
+  --danger-rgb:   202 46 58;     /* void, delete, stop */
 
-  /* Semantic (reserve for meaning, never decoration) */
-  --success:              #2E9E5B;  /* profit, paid, positive money */
-  --warning:              #E0A400;  /* attention (used lightly — few warnings in food) */
-  --danger:               #B02A37;  /* deep crimson — void, delete, unpaid. Deliberately DEEPER than the tomato accent so "void" ≠ "charge". */
+  /* The light workspace paper */
+  --canvas-rgb:   244 246 249;
 }
 ```
 
-**Semantic discipline (important here):** the **accent tomato** (`--accent`) and the **danger crimson** (`--danger`) are both warm reds, so they are pitched **deliberately apart** — bright tomato = *go* (charge, fire to kitchen), deeper crimson = *undo/stop* (void, delete). Keep that contrast; never blur them. Green = money/paid. Never use semantic colours decoratively.
+**Accent vs danger — keep them apart.** Both are warm reds, so they are pitched deliberately: bright accent = *go* (Charge, Send to kitchen), deeper crimson = *undo/stop* (Void, delete). Never blur them. Green = money.
+
+### 6.1b The two visual registers — the rule that protects the counter
+
+The app has **two** registers and they must not bleed into each other:
+
+| Register | Screens | Treatment |
+|----------|---------|-----------|
+| **RICH** | Dashboard, Activation | Dark navy, real `backdrop-filter` blur, gradient accents, layered depth, coloured stat tiles, CSS chart. These screens are looked **at**. |
+| **CALM** | Order taking, Menu, Deals, Tables, Reports, Settings | Light paper, flat surfaces, high contrast, **no blur, no gradient wash behind text or numbers**. These screens are looked **through**, for eight hours, on a cheap monitor in a bright room. |
+
+The register is selected by one class — `.workspace.rich`, set by the `AppShell` `rich` prop. **Glassmorphism behind a price column is a legibility bug, not a style.** Readability beats decoration on every screen a cashier works in.
+
+**Logo:** one slot — `public/logo.png`. Sidebar, activation screen, window icon and dock icon all read it. Replacing that one file rebrands the app.
+
+**No network assets, ever.** The background texture on the rich screens is drawn with CSS gradients rather than an image file: it costs no bytes, cannot fail to load, and re-tints itself when the brand tokens change. Fonts are a pure system stack for the same reason — nothing is ever downloaded.
 
 ### 6.2 Typography — REUSED AS-IS
 Inter (bundled offline), **tabular numbers** on all prices/totals/quantities, **big totals** (the bill total and today's profit are the largest text on their screens), sentence case, buttons name the action (**Send to kitchen**, **Charge**, **Print bill**). Keep strings in one `strings.ts` for future Urdu.
@@ -373,7 +402,8 @@ Windows `.exe` via electron-builder; first launch runs licensing before use; dat
 - [ ] One-click backup + restore to USB/folder.
 - [ ] Node-locked licensing: Machine ID, verifies founder-issued key offline, `product: food`, blocks on invalid/expired, lifetime + time-limited.
 - [ ] Founder key-generator stamps the product field.
-- [ ] **Warm hospitality** design system applied (espresso sidebar, warm-paper bg, tomato accent, tabular numbers, big totals).
+- [ ] **Dark navy + glass** design system applied (navy sidebar, glass dashboard, gradient accents, calm high-contrast work screens, tabular numbers, big totals).
+- [ ] **Deals module**: create/edit/delete combo bundles; one-tap add on the order screen; sold as component lines so profit, best-sellers and the KOT still see the real food.
 - [ ] Packaged as `.exe` via electron-builder.
 
 ---

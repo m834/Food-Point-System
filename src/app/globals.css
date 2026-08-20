@@ -1,62 +1,194 @@
 /* =====================================================================
-   Food Point — warm hospitality design system
+   FOOD POINT — DESIGN SYSTEM
+   =====================================================================
 
-   Shop is cool navy (retail), pharmacy is clinical teal (health). A food
-   point should feel warm, appetising and inviting: a deep espresso sidebar
-   on a warm-paper workspace with a tomato accent.
+   ┌───────────────────────────────────────────────────────────────────┐
+   │  THEME NOTE — HOW TO WHITE-LABEL THIS APP FOR A NEW CLIENT        │
+   ├───────────────────────────────────────────────────────────────────┤
+   │                                                                   │
+   │  1. COLOURS — edit the WHITE-LABEL BLOCK below (this file only).  │
+   │     Nine values control the entire app. Everything else in this   │
+   │     file is derived from them with color-mix(), so changing one   │
+   │     value reskins every screen, badge, chart bar and button that  │
+   │     relates to it. There are NO colour literals anywhere else in  │
+   │     this file, and none in any .tsx component.                    │
+   │                                                                   │
+   │       --brand-deep   darkest navy — sidebar + dashboard base      │
+   │       --brand-mid    gradient partner for the above               │
+   │       --brand-soft   lifted navy — borders/hover inside dark      │
+   │       --accent       primary action (Charge, Send to kitchen)     │
+   │       --accent-2     gradient partner for the accent              │
+   │       --success      money / paid / profit                        │
+   │       --warning      attention                                    │
+   │       --danger       void / delete / stop                         │
+   │       --canvas       the light workspace paper                    │
+   │                                                                   │
+   │  2. LOGO — replace ONE file: public/logo.png                      │
+   │     It is referenced from a single place (components/Sidebar.tsx  │
+   │     and components/Activation.tsx both read /logo.png). Drop in   │
+   │     a new file with the same name and it updates everywhere:      │
+   │     sidebar, activation screen, window icon and dock icon.        │
+   │                                                                   │
+   │  3. NAME — src/lib/strings.ts → strings.app.name / strings.app.by │
+   │                                                                   │
+   │  4. FONT — see the @font-face block below. The app currently uses │
+   │     a pure system stack, which downloads nothing and is therefore │
+   │     already fully offline. To bundle a real face, drop the .woff2 │
+   │     into public/fonts/ and uncomment that block.                  │
+   │                                                                   │
+   └───────────────────────────────────────────────────────────────────┘
 
-   Two rules that carry the whole palette:
+   ── THE ONE STRUCTURAL RULE OF THIS DESIGN ──
 
-   1. The accent tomato and the danger crimson are BOTH warm reds, so they
-      are pitched deliberately apart. Bright tomato = go (Charge, Send to
-      kitchen). Deeper crimson = undo/stop (Void, delete). A cashier under
-      pressure must never confuse the two.
-   2. Green means money. It is never decoration.
+   The app has TWO visual registers, and they must not bleed into each
+   other:
+
+     RICH   — the dashboard and the activation screen. Dark navy, real
+              backdrop blur, gradient accents, layered depth. These are
+              the screens that sell the product: they are looked AT.
+
+     CALM   — order taking, menu, deals, tables, reports, settings.
+              Light paper, flat surfaces, high contrast, no blur, no
+              gradient washes behind text. These are the screens that
+              are looked THROUGH, for eight hours, on a cheap monitor
+              in a bright room. Readability beats decoration here, and
+              a glass panel behind a price column is a legibility bug,
+              not a style.
+
+   The register is chosen by ONE class: `.workspace.rich` (set by the
+   AppShell `rich` prop). Everything below is organised around that
+   split — anything under `.rich` is decorative licence, everything
+   else is disciplined.
    ===================================================================== */
 
 :root {
-  /* Brand & structure */
-  --brand-espresso: #2b211c;
-  --brand-espresso-hover: #201813;
+  /* ==================================================================
+     WHITE-LABEL BLOCK — the nine values to change per client
+     ================================================================== */
 
-  /* Primary actions: Send to kitchen, Charge */
-  --accent: #e24b32;
-  --accent-hover: #c43d28;
+  /* Brand: a deep navy shell. Kept as space-separated channels so the
+     glass and gradient layers below can vary alpha without needing a
+     second hard-coded copy of each colour. */
+  --brand-deep-rgb: 9 20 36;
+  --brand-mid-rgb: 18 40 71;
+  --brand-soft-rgb: 32 66 110;
 
-  /* Surfaces — warm, not cool. The warm paper IS the identity. */
-  --bg: #faf7f3;
-  --surface: #ffffff;
-  --border: #ece4db;
+  /* Primary action + its gradient partner. Warm against the cool navy,
+     which is what keeps a food app appetising rather than corporate. */
+  --accent-rgb: 232 92 54;
+  --accent-2-rgb: 245 165 36;
 
-  /* Text */
-  --text: #241e1b;
-  --text-muted: #6e635c;
+  /* Semantic. Never decorative — green is money, amber is attention,
+     red is stop. A cashier must be able to trust these at a glance. */
+  --success-rgb: 34 168 106;
+  --warning-rgb: 214 152 12;
+  --danger-rgb: 202 46 58;
 
-  /* Semantic — reserved for meaning, never decoration */
-  --success: #2e9e5b;
-  --warning: #e0a400;
-  --danger: #b02a37;
+  /* The light workspace paper. */
+  --canvas-rgb: 244 246 249;
 
-  /* Derived tints, so components never invent their own colours */
-  --accent-soft: #fdf0ed;
-  --accent-border: #f6cfc6;
-  --success-soft: #eaf6ee;
-  --danger-soft: #fbeef0;
-  --warning-soft: #fdf6e5;
+  /* ==================================================================
+     DERIVED — nothing below here needs editing to reskin the app
+     ================================================================== */
 
-  --radius: 10px;
-  --radius-lg: 14px;
-  --shadow-sm: 0 1px 2px rgba(43, 33, 28, 0.06);
-  --shadow-md: 0 4px 16px rgba(43, 33, 28, 0.08);
-  --shadow-lg: 0 12px 40px rgba(43, 33, 28, 0.18);
+  --brand-deep: rgb(var(--brand-deep-rgb));
+  --brand-mid: rgb(var(--brand-mid-rgb));
+  --brand-soft: rgb(var(--brand-soft-rgb));
+  --accent: rgb(var(--accent-rgb));
+  --accent-2: rgb(var(--accent-2-rgb));
+  --success: rgb(var(--success-rgb));
+  --warning: rgb(var(--warning-rgb));
+  --danger: rgb(var(--danger-rgb));
 
-  --sidebar-w: 232px;
+  --accent-hover: color-mix(in srgb, var(--accent) 84%, black);
+  --danger-hover: color-mix(in srgb, var(--danger) 84%, black);
 
-  /* Inter when the machine has it, then the platform's own UI face.
-     No webfont download — the app is offline and must never wait on one. */
-  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  /* ---- Light register (the working screens) ---- */
+  --bg: rgb(var(--canvas-rgb));
+  --surface: #fff;
+  --surface-2: color-mix(in srgb, var(--bg) 55%, #fff);
+  --surface-sunken: color-mix(in srgb, var(--bg) 70%, var(--brand-deep) 3%);
+  --border: color-mix(in srgb, var(--brand-deep) 13%, transparent);
+  --border-strong: color-mix(in srgb, var(--brand-deep) 26%, transparent);
+
+  --text: color-mix(in srgb, var(--brand-deep) 92%, black);
+  --text-muted: color-mix(in srgb, var(--brand-deep) 58%, var(--bg));
+  --text-faint: color-mix(in srgb, var(--brand-deep) 40%, var(--bg));
+
+  /* Soft tints — every one derived, so they follow a rebrand. */
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, #fff);
+  --accent-border: color-mix(in srgb, var(--accent) 34%, #fff);
+  --success-soft: color-mix(in srgb, var(--success) 12%, #fff);
+  --warning-soft: color-mix(in srgb, var(--warning) 14%, #fff);
+  --danger-soft: color-mix(in srgb, var(--danger) 10%, #fff);
+  --brand-tint: color-mix(in srgb, var(--brand-deep) 6%, #fff);
+
+  /* ---- Dark register (sidebar, dashboard, activation) ---- */
+  --on-dark: color-mix(in srgb, #fff 94%, var(--brand-soft));
+  --on-dark-muted: color-mix(in srgb, #fff 62%, var(--brand-soft));
+  --on-dark-faint: color-mix(in srgb, #fff 40%, var(--brand-soft));
+
+  /* Glass: white light caught on a dark pane. Expressed in plain alpha
+     so it reads correctly over ANY brand colour, not just this navy. */
+  --glass-bg: rgb(255 255 255 / 0.07);
+  --glass-bg-strong: rgb(255 255 255 / 0.11);
+  --glass-border: rgb(255 255 255 / 0.14);
+  --glass-highlight: rgb(255 255 255 / 0.22);
+  --blur: 18px;
+  --blur-lg: 30px;
+
+  /* ---- Gradients ---- */
+  --grad-shell: linear-gradient(170deg, var(--brand-mid) 0%, var(--brand-deep) 62%);
+  --grad-accent: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  --grad-success: linear-gradient(
+    135deg,
+    var(--success) 0%,
+    color-mix(in srgb, var(--success) 55%, var(--accent-2)) 100%
+  );
+  --grad-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.1) 0%, transparent 100%);
+
+  /* ---- Shape & depth ---- */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+
+  --shadow-sm: 0 1px 2px rgb(var(--brand-deep-rgb) / 0.07);
+  --shadow-md: 0 4px 14px rgb(var(--brand-deep-rgb) / 0.08);
+  --shadow-lg: 0 18px 44px rgb(var(--brand-deep-rgb) / 0.16);
+  --shadow-glass: 0 12px 40px rgb(var(--brand-deep-rgb) / 0.4),
+    inset 0 1px 0 var(--glass-highlight);
+
+  --sidebar-w: 246px;
+
+  /* ---- Motion. One curve, three speeds — consistency reads as care. */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --t-fast: 110ms;
+  --t: 190ms;
+  --t-slow: 320ms;
+
+  /* ---- Type ----
+     A pure system stack: it renders instantly, downloads nothing, and
+     is therefore offline by construction. To bundle a real face, drop
+     the file into public/fonts/ and uncomment the @font-face below. */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
+
+/*
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+  font-style: normal;
+}
+*/
+
+/* ---------------------------------------------------------------- *
+   Base
+   ---------------------------------------------------------------- */
 
 * {
   box-sizing: border-box;
@@ -76,6 +208,7 @@ body {
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* Prices, totals and quantities align in columns and scan fast. */
@@ -84,6 +217,7 @@ input[type="number"],
 td.num,
 th.num {
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 h1,
@@ -92,11 +226,11 @@ h3,
 h4 {
   margin: 0;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 h1 {
-  font-size: 22px;
+  font-size: 23px;
 }
 h2 {
   font-size: 17px;
@@ -113,6 +247,65 @@ textarea {
   color: inherit;
 }
 
+/**
+ * Native controls follow the brand too.
+ *
+ * Checkboxes and date pickers are painted by the OS, which defaults to the
+ * system blue — the one colour on screen that would ignore a rebrand and sit
+ * outside the palette. `accent-color` hands them the token instead.
+ */
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+progress {
+  accent-color: var(--accent);
+}
+
+/* The date input's calendar glyph is near-invisible against a light field
+   at its default opacity. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity var(--t) var(--ease);
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* Scrollbars, so a long menu grid does not end in a chrome-grey gutter. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: content-box;
+}
+
+.sidebar ::-webkit-scrollbar-thumb,
+.workspace.rich ::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  background-clip: content-box;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -126,153 +319,13 @@ textarea {
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
 /* ---------------------------------------------------------------- *
-   App shell
+   Utilities
    ---------------------------------------------------------------- */
-
-.shell {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-}
-
-.sidebar {
-  width: var(--sidebar-w);
-  flex: 0 0 var(--sidebar-w);
-  background: var(--brand-espresso);
-  color: #f5ede7;
-  display: flex;
-  flex-direction: column;
-  padding: 18px 12px;
-  gap: 4px;
-}
-
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 10px 18px;
-}
-
-/**
- * The logo ships with an opaque off-white background, so dropping it straight
- * onto the espresso nav would read as a pale square. Sitting it on a light
- * rounded tile makes that background look deliberate instead — the tile and
- * the artwork share the same off-white, so the seam disappears.
- */
-.sidebar-brand-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: #faf7f3;
-  object-fit: cover;
-  flex: 0 0 auto;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-
-.sidebar-brand-name {
-  font-weight: 650;
-  font-size: 15px;
-  line-height: 1.15;
-}
-
-.sidebar-brand-sub {
-  font-size: 11px;
-  color: #b9a89d;
-}
-
-.nav-link {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  color: #d8cabf;
-  text-decoration: none;
-  font-size: 14.5px;
-  font-weight: 500;
-  transition: background 0.12s, color 0.12s;
-}
-
-.nav-link:hover {
-  background: var(--brand-espresso-hover);
-  color: #fff;
-}
-
-.nav-link.active {
-  background: var(--accent);
-  color: #fff;
-}
-
-.nav-link svg {
-  flex: 0 0 auto;
-}
-
-.sidebar-foot {
-  margin-top: auto;
-  padding: 12px 12px 2px;
-  font-size: 11.5px;
-  color: #8d7d73;
-  border-top: 1px solid #3a2e27;
-}
-
-.workspace {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.workspace-head {
-  padding: 22px 28px 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.workspace-head p {
-  margin: 3px 0 0;
-  color: var(--text-muted);
-  font-size: 13.5px;
-}
-
-.workspace-body {
-  padding: 20px 28px 32px;
-  flex: 1;
-}
-
-/* ---------------------------------------------------------------- *
-   Cards & layout helpers
-   ---------------------------------------------------------------- */
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.card-pad {
-  padding: 18px 20px;
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 15px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.grid {
-  display: grid;
-  gap: 16px;
-}
 
 .row {
   display: flex;
@@ -287,6 +340,15 @@ textarea {
   gap: 10px;
 }
 
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.right {
+  text-align: right;
+}
+
 .spacer {
   flex: 1;
 }
@@ -295,12 +357,300 @@ textarea {
   color: var(--text-muted);
 }
 
+.tiny {
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
 .small {
   font-size: 13px;
 }
 
-.tiny {
+.block {
+  width: 100%;
+}
+
+/* ---------------------------------------------------------------- *
+   App shell
+   ---------------------------------------------------------------- */
+
+.shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ---- Sidebar: glass over a navy gradient ---- */
+
+.sidebar {
+  position: relative;
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  background: var(--grad-shell);
+  color: var(--on-dark);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px 16px;
+  gap: 3px;
+  isolation: isolate;
+}
+
+/* A soft accent bloom in the top corner, so the nav has depth rather
+   than being one flat block of colour. */
+.sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(
+      120% 46% at 8% 0%,
+      color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+      transparent 68%
+    ),
+    radial-gradient(
+      90% 40% at 100% 100%,
+      color-mix(in srgb, var(--brand-soft) 60%, transparent) 0%,
+      transparent 70%
+    );
+  pointer-events: none;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 4px 8px 20px;
+}
+
+/**
+ * The logo ships with an opaque off-white background, so dropping it
+ * straight onto the navy would read as a pale square. Sitting it on a
+ * light rounded tile makes that background look deliberate instead.
+ */
+.sidebar-brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--on-dark);
+  object-fit: cover;
+  flex: 0 0 auto;
+  box-shadow: 0 2px 10px rgb(var(--brand-deep-rgb) / 0.5), 0 0 0 1px var(--glass-border);
+}
+
+.sidebar-brand-name {
+  font-weight: 650;
+  font-size: 15.5px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-brand-sub {
   font-size: 11.5px;
+  color: var(--on-dark-faint);
+  letter-spacing: 0.02em;
+}
+
+.nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  color: var(--on-dark-muted);
+  text-decoration: none;
+  font-size: 14.5px;
+  font-weight: 500;
+  transition: background var(--t) var(--ease), color var(--t) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+
+.nav-link svg {
+  flex: 0 0 auto;
+  opacity: 0.85;
+  transition: opacity var(--t) var(--ease);
+}
+
+.nav-link:hover {
+  background: var(--glass-bg);
+  color: var(--on-dark);
+}
+
+.nav-link:active {
+  transform: translateX(1px) scale(0.995);
+}
+
+.nav-link.active {
+  background: var(--glass-bg-strong);
+  color: var(--on-dark);
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+}
+
+.nav-link.active svg {
+  opacity: 1;
+}
+
+/* The accent rail — the one place the gradient appears in the nav. */
+.nav-link.active::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 22px;
+  border-radius: 0 3px 3px 0;
+  background: var(--grad-accent);
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  padding: 12px 12px 2px;
+  font-size: 11.5px;
+  color: var(--on-dark-faint);
+  border-top: 1px solid var(--glass-border);
+}
+
+/* ---- Workspace ---- */
+
+.workspace {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.workspace-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 26px 16px;
+  flex: 0 0 auto;
+}
+
+.workspace-head p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
+.workspace-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0 26px 26px;
+}
+
+/* =================================================================
+   THE RICH REGISTER — dashboard only (and .activation below).
+   Everything in here is decorative licence. Nothing in here may be
+   reused by a data-entry screen.
+   ================================================================= */
+
+.workspace.rich {
+  background: var(--grad-shell);
+  color: var(--on-dark);
+  position: relative;
+  isolation: isolate;
+}
+
+/**
+ * The "subtle background image": a mesh of soft coloured blooms plus a
+ * faint diagonal weave, drawn entirely in CSS. Deliberately not a real
+ * image file — it costs no bytes, never fails to load, and re-tints
+ * itself automatically when the brand tokens change.
+ */
+.workspace.rich::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(
+      54% 42% at 82% -6%,
+      color-mix(in srgb, var(--accent) 28%, transparent) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      46% 40% at 6% 8%,
+      color-mix(in srgb, var(--brand-soft) 75%, transparent) 0%,
+      transparent 66%
+    ),
+    radial-gradient(
+      60% 50% at 50% 106%,
+      color-mix(in srgb, var(--accent-2) 16%, transparent) 0%,
+      transparent 70%
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      rgb(255 255 255 / 0.014) 0 2px,
+      transparent 2px 7px
+    );
+  pointer-events: none;
+}
+
+.workspace.rich .workspace-head h1 {
+  color: var(--on-dark);
+  font-size: 25px;
+}
+
+.workspace.rich .workspace-head p {
+  color: var(--on-dark-muted);
+}
+
+/* ---------------------------------------------------------------- *
+   Cards
+   ---------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.card-pad {
+  padding: 18px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+/* Glass cards — rich register only. */
+.workspace.rich .card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(var(--blur-lg)) saturate(1.3);
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(1.3);
+  color: var(--on-dark);
+}
+
+.workspace.rich .card-head {
+  border-bottom-color: var(--glass-border);
+}
+
+.workspace.rich .card-head h2 {
+  color: var(--on-dark);
+}
+
+.workspace.rich .muted,
+.workspace.rich .stat-label {
+  color: var(--on-dark-muted);
 }
 
 /* ---------------------------------------------------------------- *
@@ -309,47 +659,101 @@ textarea {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(212px, 1fr));
+  gap: 14px;
 }
 
 .stat {
+  position: relative;
+  padding: 17px 18px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 18px 20px;
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: transform var(--t) var(--ease), box-shadow var(--t) var(--ease);
 }
 
 .stat-label {
-  font-size: 12.5px;
-  color: var(--text-muted);
-  font-weight: 500;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .stat-value {
-  font-size: 30px;
+  margin-top: 7px;
+  font-size: 29px;
   font-weight: 680;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
-  margin-top: 6px;
   line-height: 1.1;
 }
 
 .stat-note {
-  font-size: 12.5px;
+  margin-top: 6px;
+  font-size: 12px;
   color: var(--text-muted);
-  margin-top: 4px;
 }
 
-/* Money earned. The single most-looked-at number in the app. */
-.stat.profit {
-  background: var(--success-soft);
-  border-color: #bfe3cd;
+/* ---- Rich tiles: glass, with a coloured gradient edge per meaning ---- */
+
+.workspace.rich .stat {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(var(--blur-lg)) saturate(1.3);
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(1.3);
+  color: var(--on-dark);
 }
 
+.workspace.rich .stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 50px rgb(var(--brand-deep-rgb) / 0.5), inset 0 1px 0 var(--glass-highlight);
+}
+
+.workspace.rich .stat-note {
+  color: var(--on-dark-muted);
+}
+
+/* The coloured top edge is how the four tiles read as four different
+   things at a glance, without tinting the whole tile and hurting the
+   contrast of the number sitting on it. */
+.workspace.rich .stat::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--grad-accent);
+  opacity: 0.95;
+}
+
+.workspace.rich .stat.profit::after {
+  background: var(--grad-success);
+}
+
+.workspace.rich .stat.profit .stat-value {
+  color: color-mix(in srgb, var(--success) 62%, #fff);
+}
+
+.workspace.rich .stat.tone-b::after {
+  background: linear-gradient(
+    135deg,
+    var(--accent-2) 0%,
+    color-mix(in srgb, var(--accent-2) 50%, var(--accent)) 100%
+  );
+}
+
+.workspace.rich .stat.tone-c::after {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand-soft) 40%, #fff) 0%,
+    var(--brand-soft) 100%
+  );
+}
+
+/* Calm register keeps profit green but flat — no gradient behind data. */
 .stat.profit .stat-value {
   color: var(--success);
 }
@@ -363,63 +767,55 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 16px;
-  min-height: 42px;
-  border: 1px solid var(--border);
+  padding: 9px 15px;
   border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
   color: var(--text);
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 550;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, transform 0.06s;
+  text-decoration: none;
   white-space: nowrap;
+  transition: background var(--t) var(--ease), border-color var(--t) var(--ease),
+    transform var(--t-fast) var(--ease), box-shadow var(--t) var(--ease), color var(--t) var(--ease);
 }
 
 .btn:hover:not(:disabled) {
-  background: #f7f2ed;
+  background: var(--surface-2);
+  border-color: var(--text-faint);
 }
 
 .btn:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: scale(0.975);
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-/* GO. Charge, Send to kitchen, Save. */
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--grad-accent);
+  border-color: transparent;
   color: #fff;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-/* UNDO / STOP. Deliberately a deeper, quieter red than the accent. */
-.btn.danger {
-  background: var(--surface);
-  border-color: #e8c3c8;
-  color: var(--danger);
-}
-
-.btn.danger:hover:not(:disabled) {
-  background: var(--danger-soft);
+  background: var(--grad-accent);
+  filter: brightness(1.06);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 46%, transparent);
 }
 
 .btn.danger-solid {
   background: var(--danger);
-  border-color: var(--danger);
+  border-color: transparent;
   color: #fff;
 }
 
 .btn.danger-solid:hover:not(:disabled) {
-  background: #94222d;
+  background: var(--danger-hover);
 }
 
 .btn.ghost {
@@ -428,23 +824,41 @@ textarea {
 }
 
 .btn.ghost:hover:not(:disabled) {
-  background: #f2ebe4;
+  background: var(--surface-sunken);
+  border-color: transparent;
 }
 
-.btn.big {
-  min-height: 52px;
-  font-size: 16px;
-  padding: 12px 22px;
-}
-
-.btn.block {
-  width: 100%;
+.btn.ok-soft {
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 32%, #fff);
+  color: color-mix(in srgb, var(--success) 78%, black);
 }
 
 .btn.sm {
-  min-height: 34px;
-  padding: 6px 12px;
-  font-size: 13.5px;
+  padding: 6px 11px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+
+.btn.big {
+  padding: 12px 22px;
+  font-size: 15.5px;
+  border-radius: var(--radius);
+}
+
+/* Buttons sitting on glass need a glass treatment or they punch a
+   white hole in the panel. */
+.workspace.rich .btn:not(.primary):not(.danger-solid) {
+  background: var(--glass-bg-strong);
+  border-color: var(--glass-border);
+  color: var(--on-dark);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+}
+
+.workspace.rich .btn:not(.primary):not(.danger-solid):hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.17);
+  border-color: var(--glass-highlight);
 }
 
 /* ---------------------------------------------------------------- *
@@ -455,61 +869,52 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin-bottom: 14px;
 }
 
 .field label {
-  font-size: 13px;
-  font-weight: 550;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
-.input,
-select.input,
-textarea.input {
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.input {
   width: 100%;
   padding: 10px 12px;
-  min-height: 42px;
-  border: 1px solid var(--border);
   border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
-  transition: border-color 0.12s, box-shadow 0.12s;
+  color: var(--text);
+  transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
 }
 
 .input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-textarea.input {
-  min-height: 76px;
-  resize: vertical;
+.input::placeholder {
+  color: var(--text-faint);
 }
 
-.field-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.check input {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
+select.input {
   cursor: pointer;
 }
 
 /* ---------------------------------------------------------------- *
-   Tables (data)
+   Tables (data) — the calm register at its strictest
    ---------------------------------------------------------------- */
+
+.table-scroll {
+  overflow-x: auto;
+}
 
 table.data {
   width: 100%;
@@ -519,36 +924,58 @@ table.data {
 
 table.data th {
   text-align: left;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 11px 14px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.045em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
-  padding: 10px 14px;
+  background: var(--surface-sunken);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 table.data td {
-  padding: 11px 14px;
-  border-bottom: 1px solid #f4efe9;
-  vertical-align: middle;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
 }
 
-table.data tr:last-child td {
-  border-bottom: none;
+table.data tbody tr {
+  transition: background var(--t-fast) var(--ease);
 }
 
 table.data tbody tr:hover {
-  background: #fdfbf9;
+  background: var(--surface-sunken);
 }
 
-.right {
-  text-align: right;
+table.data tbody tr:last-child td {
+  border-bottom: none;
 }
 
-.table-scroll {
-  overflow-x: auto;
+/**
+ * Data tables inside a glass card.
+ *
+ * The calm register gives `th` a light sunken fill, which on a dark glass
+ * panel renders as a bright white bar straight through the card. The rich
+ * register has to restate the whole table in dark-surface terms.
+ */
+.workspace.rich table.data th {
+  background: rgb(255 255 255 / 0.07);
+  color: var(--on-dark-muted);
+  border-bottom-color: var(--glass-border);
+}
+
+.workspace.rich table.data td {
+  border-bottom-color: var(--glass-border);
+  color: var(--on-dark);
+}
+
+.workspace.rich table.data tbody tr:hover {
+  background: rgb(255 255 255 / 0.05);
 }
 
 /* ---------------------------------------------------------------- *
@@ -561,49 +988,50 @@ table.data tbody tr:hover {
   gap: 5px;
   padding: 3px 9px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
-  border: 1px solid transparent;
   white-space: nowrap;
+  border: 1px solid transparent;
 }
 
 .badge.neutral {
-  background: #f4efe9;
+  background: var(--surface-sunken);
   color: var(--text-muted);
+  border-color: var(--border);
 }
 
 .badge.accent {
   background: var(--accent-soft);
-  color: var(--accent-hover);
+  color: color-mix(in srgb, var(--accent) 82%, black);
   border-color: var(--accent-border);
 }
 
 .badge.success {
   background: var(--success-soft);
-  color: var(--success);
-  border-color: #bfe3cd;
+  color: color-mix(in srgb, var(--success) 80%, black);
+  border-color: color-mix(in srgb, var(--success) 30%, #fff);
 }
 
 .badge.warning {
   background: var(--warning-soft);
-  color: #9a7100;
-  border-color: #f0dfae;
+  color: color-mix(in srgb, var(--warning) 78%, black);
+  border-color: color-mix(in srgb, var(--warning) 34%, #fff);
 }
 
 .badge.danger {
   background: var(--danger-soft);
-  color: var(--danger);
-  border-color: #e8c3c8;
+  color: color-mix(in srgb, var(--danger) 82%, black);
+  border-color: color-mix(in srgb, var(--danger) 30%, #fff);
 }
 
 /* ---------------------------------------------------------------- *
-   The order screen — two panels, the heart of the app
+   The order screen — two panels, the heart of the app.
+   CALM REGISTER. No glass, no gradient washes: this is read all day.
    ---------------------------------------------------------------- */
 
 .order-screen {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 400px;
-  gap: 0;
+  grid-template-columns: minmax(0, 1fr) 396px;
   height: 100vh;
   overflow: hidden;
 }
@@ -611,221 +1039,496 @@ table.data tbody tr:hover {
 .order-left {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   overflow: hidden;
   background: var(--bg);
 }
 
 .order-toolbar {
-  padding: 16px 22px 12px;
+  padding: 16px 20px 12px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+/* The big keyboard-first search bar. A scan or a typed name lands here,
+   so it is the largest control on the screen and always reachable. */
+.order-search {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.order-search-icon {
+  position: absolute;
+  left: 14px;
+  display: flex;
+  color: var(--text-faint);
+  pointer-events: none;
+  transition: color var(--t) var(--ease);
+}
+
+.order-search .input {
+  padding: 13px 14px 13px 42px;
+  font-size: 15.5px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.order-search .input:focus {
   background: var(--surface);
 }
 
-/* Category tabs across the top of the grid. */
+.order-search:focus-within .order-search-icon {
+  color: var(--accent);
+}
+
+.order-search-hint {
+  position: absolute;
+  right: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+  background: var(--surface);
+  pointer-events: none;
+}
+
 .cat-tabs {
   display: flex;
-  gap: 8px;
+  gap: 7px;
   overflow-x: auto;
   padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 
 .cat-tab {
-  padding: 8px 15px;
+  padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: 13.5px;
   font-weight: 550;
   cursor: pointer;
   white-space: nowrap;
-  min-height: 38px;
+  transition: background var(--t) var(--ease), color var(--t) var(--ease),
+    border-color var(--t) var(--ease), transform var(--t-fast) var(--ease);
 }
 
 .cat-tab:hover {
-  background: #f7f2ed;
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.cat-tab:active {
+  transform: scale(0.97);
 }
 
 .cat-tab.active {
-  background: var(--brand-espresso);
-  border-color: var(--brand-espresso);
-  color: #fff;
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+  color: var(--on-dark);
 }
 
 .item-grid {
   flex: 1;
-  overflow-y: auto;
-  padding: 18px 22px 28px;
+  overflow: auto;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
   gap: 12px;
+  padding: 16px 20px 22px;
   align-content: start;
 }
 
 .item-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 14px;
-  text-align: left;
-  cursor: pointer;
-  min-height: 92px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+  min-height: 92px;
+  padding: 13px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
   box-shadow: var(--shadow-sm);
-  transition: border-color 0.12s, transform 0.06s, box-shadow 0.12s;
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t) var(--ease),
+    border-color var(--t) var(--ease);
 }
 
-.item-card:hover {
+.item-card:hover:not(:disabled) {
   border-color: var(--accent-border);
   box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
 }
 
-.item-card:active {
-  transform: translateY(1px);
+.item-card:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
 }
 
 .item-card-name {
   font-weight: 600;
   font-size: 14.5px;
   line-height: 1.3;
+  color: var(--text);
 }
 
 .item-card-price {
-  font-variant-numeric: tabular-nums;
   font-weight: 650;
-  color: var(--accent-hover);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
-/* Sold out. Must not look tappable — because it is not. */
+/* Sold out must not look tappable. */
 .item-card.sold-out {
-  background: #f6f2ee;
-  color: var(--text-muted);
+  background: var(--surface-sunken);
+  color: var(--text-faint);
   cursor: not-allowed;
   box-shadow: none;
   opacity: 0.72;
 }
 
-.item-card.sold-out:hover {
-  border-color: var(--border);
-  box-shadow: none;
-}
-
+.item-card.sold-out .item-card-name,
 .item-card.sold-out .item-card-price {
-  color: var(--text-muted);
+  color: var(--text-faint);
+  text-decoration: line-through;
 }
 
-/* --- Right panel: the running order --- */
+/* ---------------------------------------------------------------- *
+   Deals — a bundle at one price
+   ---------------------------------------------------------------- */
 
-.order-right {
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+/* A deal card is the one place on the order grid that carries the
+   accent, because a combo is what a counter wants to push. It is a
+   tinted border and a tag, NOT a gradient wash: the price still has to
+   be read at a glance in a bright room. */
+.deal-card {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
 }
 
-/* Which order am I on? This must never be ambiguous. */
-.order-header {
-  padding: 16px 18px;
-  background: var(--brand-espresso);
+.deal-card:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.deal-card-tag {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--grad-accent);
   color: #fff;
 }
 
-.order-header-no {
+.deal-card-parts {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* What the parts would cost separately — struck through, so the saving
+   is legible without a word of explanation. */
+.deal-card-was {
+  font-size: 12px;
+  color: var(--text-faint);
+  text-decoration: line-through;
+  font-variant-numeric: tabular-nums;
+}
+
+.deal-card.sold-out {
+  background: var(--surface-sunken);
+  border-color: var(--border);
+}
+
+.deal-card.sold-out .deal-card-tag {
+  background: var(--text-faint);
+}
+
+/* The collapsed deal row in the running order. */
+.order-line.deal-line {
+  background: var(--accent-soft);
+}
+
+.deal-line-tag {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  margin-right: 7px;
+  border-radius: 999px;
+  background: var(--grad-accent);
+  color: #fff;
+  vertical-align: 1px;
+}
+
+/* The name column: a long deal name must not be squeezed to two words by
+   the sold-out badge sitting next to it. */
+.deal-name-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.deal-name-cell > strong {
+  white-space: nowrap;
+}
+
+/* Deal editor (admin screen — calm, plain rows). */
+.deal-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.deal-part {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.deal-part-name {
+  font-weight: 550;
+  font-size: 14px;
+}
+
+.deal-summary {
+  margin: 4px 0 16px;
+  padding: 13px 15px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13.5px;
+}
+
+.deal-summary-saving {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-weight: 650;
+}
+
+/* ---------------------------------------------------------------- *
+   Running order panel
+   ---------------------------------------------------------------- */
+
+.order-right {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.open-strip {
+  display: flex;
+  gap: 7px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+  flex: 0 0 auto;
+}
+
+.open-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
   font-size: 13px;
-  color: #c3b3a8;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t) var(--ease), border-color var(--t) var(--ease),
+    color var(--t) var(--ease);
+}
+
+.open-chip:hover {
+  border-color: var(--text-faint);
+}
+
+.open-chip.active {
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+  color: var(--on-dark);
+}
+
+.open-chip.active .muted {
+  color: var(--on-dark-faint);
+}
+
+/* An order with items still waiting to be fired. */
+.open-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.order-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--brand-deep);
+  color: var(--on-dark);
+  flex: 0 0 auto;
+}
+
+.order-header-no {
+  font-size: 12.5px;
+  color: var(--on-dark-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .order-header-where {
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 650;
   margin-top: 2px;
+  letter-spacing: -0.015em;
 }
 
 .order-lines {
   flex: 1;
-  overflow-y: auto;
-  padding: 6px 0;
+  overflow: auto;
+  padding: 10px 12px;
 }
 
 .order-line {
-  padding: 11px 18px;
-  border-bottom: 1px solid #f4efe9;
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  animation: line-in var(--t-slow) var(--ease);
+}
+
+@keyframes line-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.order-line + .order-line {
+  margin-top: 4px;
+}
+
+.order-line:hover {
+  background: var(--surface-sunken);
 }
 
 .order-line.fired {
-  background: #fcfaf8;
+  border-color: var(--border);
+  background: var(--surface-sunken);
 }
 
 .order-line.voided {
   opacity: 0.5;
+}
+
+.order-line.voided .order-line-name,
+.order-line.voided .order-line-total {
   text-decoration: line-through;
 }
 
 .order-line-main {
-  flex: 1;
   min-width: 0;
 }
 
 .order-line-name {
-  font-weight: 550;
+  font-weight: 600;
   font-size: 14.5px;
+  line-height: 1.3;
 }
 
 .order-line-meta {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .order-line-total {
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
   white-space: nowrap;
 }
 
 .qty-stepper {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--surface);
 }
 
 .qty-stepper button {
   width: 30px;
-  height: 30px;
+  height: 28px;
   border: none;
   background: var(--surface);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+  color: var(--text);
+  transition: background var(--t-fast) var(--ease);
 }
 
-.qty-stepper button:hover {
-  background: #f2ebe4;
+.qty-stepper button:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+
+.qty-stepper button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .qty-stepper span {
-  min-width: 30px;
+  min-width: 34px;
   text-align: center;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  font-size: 14px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 3px 0;
 }
 
 .order-foot {
+  flex: 0 0 auto;
+  padding: 14px 16px 16px;
   border-top: 1px solid var(--border);
-  padding: 14px 18px 16px;
   background: var(--surface);
 }
 
@@ -837,64 +1540,30 @@ table.data tbody tr:hover {
 }
 
 .order-total-label {
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  font-weight: 550;
 }
 
-/* The biggest text on this screen, by design. */
+/* The biggest number on the screen — deliberately. */
 .order-total-value {
-  font-size: 32px;
+  font-size: 30px;
   font-weight: 700;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
 }
 
 .order-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 9px;
 }
 
-/* Strip of other open orders — many run at once, switching is one tap. */
-.open-strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 10px 18px;
-  border-bottom: 1px solid var(--border);
-  background: #fdfbf9;
-}
-
-.open-chip {
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  font-size: 13px;
-  font-weight: 550;
-  cursor: pointer;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.open-chip:hover {
-  border-color: var(--accent-border);
-}
-
-.open-chip.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent-hover);
-}
-
-.open-chip .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--warning);
+.order-actions .btn {
+  padding: 13px 12px;
+  font-size: 14.5px;
 }
 
 /* ---------------------------------------------------------------- *
@@ -903,50 +1572,271 @@ table.data tbody tr:hover {
 
 .floor-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 13px;
 }
 
 .table-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 18px;
-  cursor: pointer;
-  text-align: left;
-  min-height: 116px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
+  min-height: 98px;
+  padding: 15px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
   box-shadow: var(--shadow-sm);
-  transition: border-color 0.12s, box-shadow 0.12s, transform 0.06s;
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t) var(--ease),
+    border-color var(--t) var(--ease);
 }
 
 .table-card:hover {
-  border-color: var(--accent-border);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
-}
-
-.table-card:active {
-  transform: translateY(1px);
+  border-color: var(--text-faint);
 }
 
 .table-card-name {
-  font-size: 20px;
-  font-weight: 680;
+  font-size: 17px;
+  font-weight: 650;
 }
 
+.table-card-total {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+/* Occupied reads instantly — accent tint plus the running total. */
 .table-card.occupied {
   background: var(--accent-soft);
   border-color: var(--accent-border);
 }
 
-.table-card-total {
-  font-size: 19px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  color: var(--accent-hover);
+.table-card.occupied .table-card-total {
+  color: color-mix(in srgb, var(--accent) 80%, black);
+}
+
+/* ---------------------------------------------------------------- *
+   Staff, sign-in and cancellations
+   ---------------------------------------------------------------- */
+
+/* Money that went the wrong way. Deliberately the danger token, never the
+   accent — this is a problem, not a highlight. */
+.stat.danger .stat-value {
+  color: var(--danger);
+}
+
+.workspace.rich .stat.danger .stat-value {
+  color: color-mix(in srgb, var(--danger) 45%, #fff);
+}
+
+/* ---- The shift sign-in (rich register, shares .activation) ---- */
+
+.staff-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.staff-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 16px 10px;
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  color: var(--on-dark);
+  cursor: pointer;
+  transition: transform var(--t-fast) var(--ease), background var(--t) var(--ease),
+    border-color var(--t) var(--ease);
+}
+
+.staff-pick:hover {
+  background: rgb(255 255 255 / 0.17);
+  border-color: var(--glass-highlight);
+  transform: translateY(-2px);
+}
+
+.staff-pick:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.staff-pick-initial {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 700;
+  background: var(--grad-accent);
+  color: #fff;
+}
+
+.staff-pick-name {
+  font-weight: 600;
+  font-size: 14.5px;
+}
+
+/* A PIN is four taps, so give it room and centre it. */
+.pin-input {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 26px;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  padding: 14px 12px;
+}
+
+/* ---- Who is on the counter, in the sidebar ---- */
+
+.sidebar-staff {
   margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+
+.sidebar-staff-who {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.sidebar-staff-initial {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--grad-accent);
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+.sidebar-staff-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--on-dark-faint);
+}
+
+.sidebar-staff-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--on-dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-staff-out {
+  border: none;
+  background: none;
+  color: var(--on-dark-faint);
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: color var(--t) var(--ease), background var(--t) var(--ease);
+}
+
+.sidebar-staff-out:hover {
+  color: var(--on-dark);
+  background: var(--glass-bg-strong);
+}
+
+/* The sidebar foot loses its auto-margin once the staff chip has it. */
+.sidebar-staff + .sidebar-foot {
+  margin-top: 10px;
+}
+
+/* ---- The cancel dialog ---- */
+
+.cancel-summary {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.cancel-summary-amount {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.reason-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.reason-grid .cat-tab {
+  text-align: center;
+}
+
+/* ---- The per-staff comparison bar ---- */
+
+.staff-bar {
+  height: 9px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.staff-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--grad-accent);
+  transition: width var(--t-slow) var(--ease);
+}
+
+/* Cash cancelled after payment — the column an owner reads first. */
+.cancel-paid {
+  color: var(--danger);
+  font-weight: 650;
+}
+
+/* ---- Staff rows in Settings ---- */
+
+.staff-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.staff-row + .staff-row {
+  margin-top: 8px;
+}
+
+.staff-row.inactive {
+  background: var(--surface-sunken);
+  opacity: 0.72;
+}
+
+.staff-row-name {
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------- *
@@ -954,22 +1844,33 @@ table.data tbody tr:hover {
    ---------------------------------------------------------------- */
 
 .empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 46px 24px;
   text-align: center;
-  padding: 44px 24px;
   color: var(--text-muted);
 }
 
 .empty-title {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--text);
-  margin-bottom: 5px;
 }
 
 .empty-note {
   font-size: 13.5px;
   max-width: 380px;
-  margin: 0 auto 16px;
+}
+
+.workspace.rich .empty-title {
+  color: var(--on-dark);
+}
+
+.workspace.rich .empty {
+  color: var(--on-dark-muted);
 }
 
 /* ---------------------------------------------------------------- *
@@ -979,43 +1880,75 @@ table.data tbody tr:hover {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 30, 27, 0.42);
-  display: grid;
-  place-items: center;
+  background: rgb(var(--brand-deep-rgb) / 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 24px;
-  z-index: 60;
+  z-index: 100;
+  animation: fade-in var(--t) var(--ease);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .modal {
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
   width: 100%;
-  max-width: 480px;
+  max-width: 460px;
   max-height: 88vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: modal-in var(--t-slow) var(--ease);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .modal.wide {
-  max-width: 720px;
+  max-width: 660px;
 }
 
 .modal-head {
-  padding: 18px 22px 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 
 .modal-body {
-  padding: 4px 22px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  padding: 18px;
+  overflow: auto;
+  flex: 1;
 }
 
 .modal-foot {
-  padding: 14px 22px 20px;
   display: flex;
-  gap: 10px;
   justify-content: flex-end;
+  gap: 9px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  flex: 0 0 auto;
 }
 
 /* ---------------------------------------------------------------- *
@@ -1023,117 +1956,205 @@ table.data tbody tr:hover {
    ---------------------------------------------------------------- */
 
 .notice {
-  padding: 11px 14px;
+  padding: 11px 13px;
   border-radius: var(--radius);
   font-size: 13.5px;
   border: 1px solid transparent;
+  margin-top: 12px;
 }
 
 .notice.error {
   background: var(--danger-soft);
-  color: var(--danger);
-  border-color: #e8c3c8;
+  border-color: color-mix(in srgb, var(--danger) 28%, #fff);
+  color: color-mix(in srgb, var(--danger) 82%, black);
 }
 
 .notice.warn {
   background: var(--warning-soft);
-  color: #8a6500;
-  border-color: #f0dfae;
+  border-color: color-mix(in srgb, var(--warning) 32%, #fff);
+  color: color-mix(in srgb, var(--warning) 78%, black);
 }
 
 .notice.ok {
   background: var(--success-soft);
-  color: var(--success);
-  border-color: #bfe3cd;
+  border-color: color-mix(in srgb, var(--success) 28%, #fff);
+  color: color-mix(in srgb, var(--success) 80%, black);
 }
 
 .toast-wrap {
   position: fixed;
-  bottom: 22px;
-  right: 22px;
+  right: 20px;
+  bottom: 20px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  z-index: 80;
+  gap: 9px;
+  z-index: 200;
+  pointer-events: none;
 }
 
 .toast {
-  background: var(--brand-espresso);
-  color: #fff;
-  padding: 12px 18px;
+  padding: 12px 16px;
   border-radius: var(--radius);
+  background: var(--brand-deep);
+  color: var(--on-dark);
+  font-size: 13.5px;
+  font-weight: 500;
   box-shadow: var(--shadow-lg);
-  font-size: 14px;
+  border: 1px solid var(--glass-border);
   max-width: 380px;
+  animation: toast-in var(--t-slow) var(--ease);
 }
 
-.toast.error {
-  background: var(--danger);
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .toast.ok {
-  background: var(--success);
+  background: color-mix(in srgb, var(--success) 88%, black);
+}
+
+.toast.error {
+  background: color-mix(in srgb, var(--danger) 88%, black);
 }
 
 /* ---------------------------------------------------------------- *
-   Activation screen — the gate before anything else
+   Activation screen — RICH REGISTER. The gate before anything else.
    ---------------------------------------------------------------- */
 
 .activation {
   min-height: 100vh;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 28px;
-  background: var(--brand-espresso);
+  background: var(--grad-shell);
+  position: relative;
+  isolation: isolate;
+}
+
+.activation::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(
+      50% 44% at 50% 0%,
+      color-mix(in srgb, var(--accent) 30%, transparent) 0%,
+      transparent 64%
+    ),
+    radial-gradient(
+      44% 40% at 12% 92%,
+      color-mix(in srgb, var(--brand-soft) 80%, transparent) 0%,
+      transparent 68%
+    ),
+    repeating-linear-gradient(-45deg, rgb(255 255 255 / 0.015) 0 2px, transparent 2px 7px);
+  pointer-events: none;
 }
 
 .activation-card {
-  background: var(--surface);
-  border-radius: 18px;
-  box-shadow: var(--shadow-lg);
   width: 100%;
-  max-width: 540px;
-  padding: 34px 34px 30px;
+  max-width: 460px;
+  padding: 32px;
+  border-radius: var(--radius-xl);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(var(--blur-lg)) saturate(1.3);
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(1.3);
+  color: var(--on-dark);
+  text-align: center;
+  animation: modal-in var(--t-slow) var(--ease);
+}
+
+.activation-card h1 {
+  color: var(--on-dark);
+  margin-bottom: 8px;
+}
+
+.activation-card p {
+  color: var(--on-dark-muted);
+  font-size: 14px;
+}
+
+.activation-card .muted,
+.activation-card .tiny,
+.activation-card .small {
+  color: var(--on-dark-muted);
+}
+
+.activation-card .notice.error {
+  background: color-mix(in srgb, var(--danger) 26%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 52%, transparent);
+  color: color-mix(in srgb, #fff 88%, var(--danger));
+}
+
+.activation-card .notice.ok {
+  background: color-mix(in srgb, var(--success) 24%, transparent);
+  border-color: color-mix(in srgb, var(--success) 50%, transparent);
+  color: color-mix(in srgb, #fff 88%, var(--success));
+}
+
+.activation-card .field label {
+  color: var(--on-dark-muted);
+  text-align: left;
+}
+
+.activation-card .input {
+  background: rgb(255 255 255 / 0.1);
+  border-color: var(--glass-border);
+  color: var(--on-dark);
+}
+
+.activation-card .input::placeholder {
+  color: var(--on-dark-faint);
+}
+
+.activation-card .btn:not(.primary) {
+  background: var(--glass-bg-strong);
+  border-color: var(--glass-border);
+  color: var(--on-dark);
 }
 
 .activation-logo {
+  width: 68px;
+  height: 68px;
+  border-radius: 19px;
+  object-fit: cover;
+  margin: 0 auto 18px;
   display: block;
-  border-radius: 16px;
-  margin-bottom: 16px;
+  background: var(--on-dark);
+  box-shadow: 0 8px 26px rgb(var(--brand-deep-rgb) / 0.55), 0 0 0 1px var(--glass-border);
 }
 
 .machine-id {
   font-family: var(--font-mono);
-  font-size: 17px;
-  letter-spacing: 0.06em;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  padding: 11px 13px;
   border-radius: var(--radius);
-  padding: 13px 15px;
+  background: rgb(255 255 255 / 0.09);
+  border: 1px solid var(--glass-border);
   word-break: break-all;
-}
-
-.receipt-preview {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  overflow-x: auto;
+  color: var(--on-dark);
 }
 
 /* ---------------------------------------------------------------- *
-   Bar chart — sales by hour, drawn in CSS so nothing is downloaded
+   Charts — drawn in CSS so nothing is downloaded
    ---------------------------------------------------------------- */
 
 .hour-chart {
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 150px;
+  height: 158px;
   padding-top: 8px;
 }
 
@@ -1149,9 +2170,14 @@ table.data tbody tr:hover {
 
 .hour-bar-fill {
   width: 100%;
-  background: var(--accent);
-  border-radius: 4px 4px 0 0;
+  background: var(--grad-accent);
+  border-radius: 5px 5px 0 0;
   min-height: 2px;
+  transition: height var(--t-slow) var(--ease), filter var(--t) var(--ease);
+}
+
+.hour-bar:hover .hour-bar-fill {
+  filter: brightness(1.15);
 }
 
 .hour-bar-label {
@@ -1160,8 +2186,156 @@ table.data tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.workspace.rich .hour-bar-label {
+  color: var(--on-dark-muted);
+}
+
+/* The dashboard chart sits on glass, so its bars need a lit base. */
+.workspace.rich .hour-bar {
+  background: rgb(255 255 255 / 0.05);
+  border-radius: 5px;
+}
+
+/* ---------------------------------------------------------------- *
+   Receipt preview — a real bill, so it must look like paper
+   ---------------------------------------------------------------- */
+
+.receipt-preview {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+  overflow-x: auto;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- *
+   Responsive — small, low-res screens are common at a counter
+   ---------------------------------------------------------------- */
+
 @media (max-width: 1180px) {
   .order-screen {
     grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
+
+@media (max-width: 900px) {
+  :root {
+    --sidebar-w: 76px;
+  }
+
+  .sidebar-brand-name,
+  .sidebar-brand-sub,
+  .sidebar-foot,
+  .nav-link span {
+    display: none;
+  }
+
+  .nav-link {
+    justify-content: center;
+  }
+
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------- *
+   Print — the owner takes the night's report to the desk
+   ---------------------------------------------------------------- *
+   Only the reports screen is meant for paper. The app chrome (sidebar,
+   date pickers, the print button itself) is screen furniture and must
+   not appear, and the whole palette has to become plain black on white
+   or it drinks a cartridge per page.
+   ---------------------------------------------------------------- */
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+
+  :root {
+    --bg: #fff;
+    --surface: #fff;
+    --surface-2: #fff;
+    --surface-sunken: #fff;
+    --text: #000;
+    --text-muted: #333;
+    --text-faint: #666;
+    --border: #999;
+    --border-strong: #666;
+    --success: #000;
+    --accent: #000;
+    --accent-2: #000;
+    --brand-deep: #000;
+    --on-dark: #000;
+    --on-dark-muted: #333;
+    --grad-accent: #000;
+    --grad-shell: #fff;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+    --shadow-glass: none;
+  }
+
+  .print-only {
+    display: block;
+  }
+
+  .sidebar,
+  .workspace-head,
+  .toast-wrap,
+  .btn,
+  .cat-tabs,
+  .no-print {
+    display: none !important;
+  }
+
+  .shell,
+  .workspace,
+  .workspace-body {
+    display: block;
+    height: auto;
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+  }
+
+  /* Glass is a screen effect. On paper it is just a grey box. */
+  .workspace.rich,
+  .workspace.rich::before,
+  .workspace.rich .card,
+  .workspace.rich .stat {
+    background: #fff !important;
+    color: #000 !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+
+  .card,
+  .stat {
+    break-inside: avoid;
+    box-shadow: none;
+    border-color: #999;
+  }
+
+  table.data th {
+    background: #fff;
+    color: #000;
+  }
+
+  .print-head {
+    display: block;
+    margin-bottom: 12mm;
   }
 }

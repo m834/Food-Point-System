@@ -1,7 +1,10 @@
 import type {
   BackupRecord,
   BestSeller,
+  CancellationsReport,
+  CancelReasonCode,
   DashboardSummary,
+  Deal,
   DiningTable,
   LicenseStatus,
   MenuCategory,
@@ -16,6 +19,8 @@ import type {
   SalesByHour,
   SalesByType,
   SettingsMap,
+  StaffMember,
+  StaffSession,
   VoidRecord,
 } from '../../shared/types';
 
@@ -80,6 +85,14 @@ export const api = {
     remove: (id: number) => call<null>('modifiers', 'remove', id),
   },
 
+  deals: {
+    list: (activeOnly?: boolean) => call<Deal[]>('deals', 'list', activeOnly),
+    get: (id: number) => call<Deal>('deals', 'get', id),
+    save: (deal: Record<string, unknown>) => call<Deal>('deals', 'save', deal),
+    remove: (id: number) => call<null>('deals', 'remove', id),
+    setActive: (id: number, active: boolean) => call<Deal>('deals', 'setActive', id, active),
+  },
+
   tables: {
     list: () => call<DiningTable[]>('tables', 'list'),
     save: (table: Record<string, unknown>) => call<DiningTable>('tables', 'save', table),
@@ -99,6 +112,9 @@ export const api = {
       call<Order[]>('orders', 'list', { from, to, status }),
     addItems: (orderId: number, lines: NewOrderLine[]) =>
       call<Order>('orders', 'addItems', orderId, lines),
+    /** A whole deal in one action — the backend expands and prices it. */
+    addDeal: (orderId: number, dealId: number, quantity = 1) =>
+      call<Order>('orders', 'addDeal', orderId, dealId, quantity),
     setItemQty: (orderItemId: number, qty: number) =>
       call<Order>('orders', 'setItemQty', orderItemId, qty),
     fire: (orderId: number) =>
@@ -106,12 +122,27 @@ export const api = {
     settle: (orderId: number, input: { discount?: number; payment_method: string }) =>
       call<{ order: Order; print: PrintOutcome }>('orders', 'settle', orderId, input),
     reprintBill: (orderId: number) => call<PrintOutcome>('orders', 'reprintBill', orderId),
-    voidItem: (orderItemId: number, reason: string, pin?: string) =>
-      call<Order>('orders', 'voidItem', orderItemId, reason, pin),
-    voidOrder: (orderId: number, reason: string, pin?: string) =>
-      call<Order>('orders', 'voidOrder', orderId, reason, pin),
+    /** Cancel a line off an open order: reason code + optional note. */
+    voidItem: (orderItemId: number, reason: CancelReasonCode, note?: string | null) =>
+      call<Order>('orders', 'voidItem', orderItemId, reason, note),
+    /** Cancel a whole order. The PIN is only consulted when it was paid. */
+    voidOrder: (
+      orderId: number,
+      reason: CancelReasonCode,
+      note?: string | null,
+      pin?: string,
+    ) => call<Order>('orders', 'voidOrder', orderId, reason, note, pin),
     previewBill: (orderId: number) => call<string>('orders', 'previewBill', orderId),
     previewTicket: (orderId: number) => call<string>('orders', 'previewTicket', orderId),
+  },
+
+  staff: {
+    list: (activeOnly?: boolean) => call<StaffMember[]>('staff', 'list', activeOnly),
+    save: (staff: Record<string, unknown>) => call<StaffMember>('staff', 'save', staff),
+    remove: (id: number) => call<{ deleted: boolean }>('staff', 'remove', id),
+    signIn: (id: number, pin: string) => call<StaffSession>('staff', 'signIn', id, pin),
+    signOut: () => call<null>('staff', 'signOut'),
+    current: () => call<StaffSession | null>('staff', 'current'),
   },
 
   reports: {
@@ -122,6 +153,8 @@ export const api = {
       call<BestSeller[]>('reports', 'bestSellers', from, to, limit),
     byHour: (from: string, to: string) => call<SalesByHour[]>('reports', 'byHour', from, to),
     voids: (from: string, to: string) => call<VoidRecord[]>('reports', 'voids', from, to),
+    cancellations: (from: string, to: string) =>
+      call<CancellationsReport>('reports', 'cancellations', from, to),
   },
 
   license: {

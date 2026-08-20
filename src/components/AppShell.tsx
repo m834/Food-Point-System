@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useApp } from './AppContext';
 import { Sidebar } from './Sidebar';
 import { Activation } from './Activation';
+import { StaffSignIn } from './StaffSignIn';
 import { Spinner } from './ui';
 import { hasBridge } from '@/lib/api';
 
@@ -19,6 +20,7 @@ export function AppShell({
   actions,
   children,
   bare = false,
+  rich = false,
 }: {
   title?: string;
   subtitle?: string;
@@ -26,8 +28,18 @@ export function AppShell({
   children: ReactNode;
   /** The order screen manages its own full-height layout. */
   bare?: boolean;
+  /**
+   * Switches the workspace into the RICH visual register — dark navy,
+   * glass, gradient depth. Reserved for the dashboard; the activation
+   * screen gets the same treatment through its own `.activation` styles.
+   *
+   * Every other screen stays in the CALM register on purpose: they are
+   * data-entry surfaces read all day on cheap monitors, where blur and
+   * gradient behind a price column costs legibility for nothing.
+   */
+  rich?: boolean;
 }) {
-  const { ready, license } = useApp();
+  const { ready, license, staff, staffRequired, refreshStaff } = useApp();
 
   if (!ready) return <Spinner />;
 
@@ -47,10 +59,17 @@ export function AppShell({
 
   if (!license?.licensed) return <Activation />;
 
+  /**
+   * The shift gate. Only appears once the owner has actually added staff — a
+   * shop that has not set anyone up carries on exactly as before, and its
+   * cancellations are simply recorded without a name until it does.
+   */
+  if (staffRequired && !staff) return <StaffSignIn onSignedIn={refreshStaff} />;
+
   return (
     <div className="shell">
       <Sidebar />
-      <main className="workspace">
+      <main className={`workspace${rich ? ' rich' : ''}`}>
         {bare ? (
           children
         ) : (

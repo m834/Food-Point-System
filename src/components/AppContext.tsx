@@ -11,7 +11,12 @@ import {
 } from 'react';
 import { api, hasBridge } from '@/lib/api';
 import { setCurrency } from '@/lib/format';
-import { SETTING_KEYS, type LicenseStatus, type SettingsMap } from '../../shared/types';
+import {
+  SETTING_KEYS,
+  type LicenseStatus,
+  type SettingsMap,
+  type StaffSession,
+} from '../../shared/types';
 
 /**
  * App-wide state that nearly every screen needs: the license gate, settings
@@ -32,6 +37,12 @@ interface AppState {
   license: LicenseStatus | null;
   settings: SettingsMap;
   tablesEnabled: boolean;
+  /** Who is on the counter, per the MAIN process. Null when nobody is. */
+  staff: StaffSession | null;
+  /** True once the owner has added anyone — then signing in is required. */
+  staffRequired: boolean;
+  refreshStaff: () => Promise<void>;
+  signOut: () => Promise<void>;
   refreshLicense: () => Promise<void>;
   refreshSettings: () => Promise<void>;
   toast: (message: string, kind?: Toast['kind']) => void;
@@ -49,6 +60,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [settings, setSettings] = useState<SettingsMap>({});
+  const [staff, setStaff] = useState<StaffSession | null>(null);
+  const [staffRequired, setStaffRequired] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const toast = useCallback((message: string, kind: Toast['kind'] = 'info') => {
@@ -66,6 +79,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLicense(null);
     }
   }, []);
+
+  /**
+   * Ask the main process who is signed in.
+   *
+   * Deliberately never cached from a local sign-in call: the session lives in
+   * the main process precisely so the renderer cannot decide who it is, and
+   * reading it back is what keeps that true. It also picks up a staff member
+   * the owner deactivated mid-shift.
+   */
+  const refreshStaff = useCallback(async () => {
+    try {
+      const [current, roster] = await Promise.all([api.staff.current(), api.staff.list(true)]);
+      setStaff(current);
+      setStaffRequired(roster.length > 0);
+    } catch {
+      /* Before activation the staff channel is closed — that is expected. */
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    try {
+      await api.staff.signOut();
+    } finally {
+      await refreshStaff();
+    }
+  }, [refreshStaff]);
 
   const refreshSettings = useCallback(async () => {
     try {
@@ -86,15 +125,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       await refreshLicense();
       await refreshSettings();
+      await refreshStaff();
       setReady(true);
     })();
-  }, [refreshLicense, refreshSettings]);
+  }, [refreshLicense, refreshSettings, refreshStaff]);
 
   // Settings only become readable once the app is unlocked, so pick them up
   // the moment activation succeeds.
   useEffect(() => {
-    if (license?.licensed) void refreshSettings();
-  }, [license?.licensed, refreshSettings]);
+    if (license?.licensed) {
+      void refreshSettings();
+      void refreshStaff();
+    }
+  }, [license?.licensed, refreshSettings, refreshStaff]);
 
   const value = useMemo<AppState>(
     () => ({
@@ -102,11 +145,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       license,
       settings,
       tablesEnabled: settings[SETTING_KEYS.enableTables] !== '0',
+      staff,
+      staffRequired,
+      refreshStaff,
+      signOut,
       refreshLicense,
       refreshSettings,
       toast,
     }),
-    [ready, license, settings, refreshLicense, refreshSettings, toast],
+    [
+      ready,
+      license,
+      settings,
+      staff,
+      staffRequired,
+      refreshStaff,
+      signOut,
+      refreshLicense,
+      refreshSettings,
+      toast,
+    ],
   );
 
   return (
