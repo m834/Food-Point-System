@@ -915,7 +915,24 @@ app.whenReady().then(async () => {
       ok(printJobs.every((j) => j.printer === 'ONLY_PRINTER'), 'both on the one device');
       ok(/KITCHEN/.test(printJobs[0].text) && !/Rs/.test(printJobs[0].text), 'kitchen format first');
       ok(/TOTAL/.test(printJobs[1].text) && /Rs/.test(printJobs[1].text), 'bill format second');
-      ok(printJobs.every((j) => j.text.endsWith('\n\n\n\n')), 'paper fed past the head to tear');
+      // v1.1 sends raw ESC/POS rather than a plain text file, so the job now
+      // ends with feeds AND a cut command instead of bare newlines.
+      ok(
+        printJobs.every((j) => /\r\n\r\n\r\n\r\n/.test(j.text)),
+        'paper fed past the head to tear',
+      );
+      ok(
+        printJobs.every((j) => j.text.endsWith('\x1d\x56\x01')),
+        'and the roll is cut',
+      );
+      ok(
+        printJobs.every((j) => j.text.startsWith('\x1b@')),
+        'each job resets the printer first',
+      );
+      ok(
+        printJobs.every((j) => j.text.includes('\x1b!\x08')),
+        'and prints emphasised so thermal paper stays legible',
+      );
     } finally {
       releaseJobs();
     }

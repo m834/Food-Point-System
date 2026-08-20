@@ -5,7 +5,8 @@ import { AppShell } from '@/components/AppShell';
 import { useApp } from '@/components/AppContext';
 import { Badge, Card, Empty, Field, Modal, Notice } from '@/components/ui';
 import { IconPlus, IconTrash } from '@/components/icons';
-import { api } from '@/lib/api';
+import { ImagePicker } from '@/components/ImagePicker';
+import { api, imageUrl } from '@/lib/api';
 import { strings } from '@/lib/strings';
 import { money } from '@/lib/format';
 import type { MenuCategory, MenuItem, ModifierGroup } from '../../../shared/types';
@@ -200,6 +201,14 @@ function ItemModal({
   const [available, setAvailable] = useState(item ? Boolean(item.is_available) : true);
   const [notes, setNotes] = useState(item?.notes ?? '');
   const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
+  const [image, setImage] = useState<string | null>(item?.image_file ?? null);
+  const [variants, setVariants] = useState<Array<{ name: string; sale_price: string; cost_price: string }>>(
+    (item?.variants ?? []).map((v) => ({
+      name: v.name,
+      sale_price: String(v.sale_price),
+      cost_price: String(v.cost_price),
+    })),
+  );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -208,7 +217,16 @@ function ItemModal({
     if (!item) return;
     api.menu
       .getItem(item.id)
-      .then((full) => setSelectedGroups((full.modifier_groups ?? []).map((group) => group.id)))
+      .then((full) => {
+        setSelectedGroups((full.modifier_groups ?? []).map((group) => group.id));
+        setVariants(
+          (full.variants ?? []).map((v) => ({
+            name: v.name,
+            sale_price: String(v.sale_price),
+            cost_price: String(v.cost_price),
+          })),
+        );
+      })
       .catch(() => undefined);
   }, [item]);
 
@@ -225,7 +243,16 @@ function ItemModal({
         is_available: available,
         notes: notes || null,
         sort_order: item?.sort_order ?? 0,
+        image_file: image,
         modifier_group_ids: selectedGroups,
+        // Rows with a name are real sizes; a half-typed blank row is not.
+        variants: variants
+          .filter((v) => v.name.trim())
+          .map((v) => ({
+            name: v.name.trim(),
+            sale_price: Number(v.sale_price) || 0,
+            cost_price: Number(v.cost_price) || 0,
+          })),
       });
       await onDone();
     } catch (err) {
@@ -337,6 +364,84 @@ function ItemModal({
         </Field>
       ) : null}
 
+      <Field label={strings.images.itemPhoto}>
+        <ImagePicker kind="menu-item" value={image} onChange={setImage} />
+      </Field>
+
+      {/* Sizes. An item with none is a single-price item; add a row and it
+          starts asking the counter which size before it goes on the bill. */}
+      <Field label={strings.menu.sizes} hint={strings.menu.sizesHint}>
+        {variants.length ? (
+          <div className="variant-rows">
+            {variants.map((variant, index) => (
+              <div className="variant-row" key={index}>
+                <input
+                  className="input"
+                  placeholder={strings.menu.sizeName}
+                  value={variant.name}
+                  onChange={(event) =>
+                    setVariants((current) =>
+                      current.map((v, i) => (i === index ? { ...v, name: event.target.value } : v)),
+                    )
+                  }
+                />
+                <input
+                  className="input num"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder={strings.menu.price}
+                  value={variant.sale_price}
+                  onChange={(event) =>
+                    setVariants((current) =>
+                      current.map((v, i) =>
+                        i === index ? { ...v, sale_price: event.target.value } : v,
+                      ),
+                    )
+                  }
+                />
+                <input
+                  className="input num"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder={strings.menu.foodCost}
+                  value={variant.cost_price}
+                  onChange={(event) =>
+                    setVariants((current) =>
+                      current.map((v, i) =>
+                        i === index ? { ...v, cost_price: event.target.value } : v,
+                      ),
+                    )
+                  }
+                />
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  style={{ color: 'var(--danger)' }}
+                  onClick={() => setVariants((current) => current.filter((_, i) => i !== index))}
+                  aria-label={strings.common.delete}
+                >
+                  <IconTrash size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="tiny muted">{strings.menu.noSizes}</div>
+        )}
+        <button
+          type="button"
+          className="btn sm"
+          style={{ marginTop: 8 }}
+          onClick={() =>
+            setVariants((current) => [...current, { name: '', sale_price: '', cost_price: '' }])
+          }
+        >
+          {strings.menu.addSize}
+        </button>
+      </Field>
+
       <Field label={`${strings.order.lineNote} (${strings.order.optional})`}>
         <input className="input" value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
@@ -367,6 +472,50 @@ function CategoryModal({
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Which category's photo is being changed, if any. */
+  const [photoFor, setPhotoFor] = useState<MenuCategory | null>(null);
+  /** Which category is being renamed, and to what. */
+  const [renaming, setRenaming] = useState<{ id: number; value: string } | null>(null);
+
+  const rename = async (category: MenuCategory, value: string) => {
+    const next = value.trim();
+    if (!next || next === category.name) {
+      setRenaming(null);
+      return;
+    }
+    try {
+      await api.menu.saveCategory({
+        id: category.id,
+        name: next,
+        sort_order: category.sort_order,
+        // Keep the photo — this edit is only about the name.
+        image_file: category.image_file,
+      });
+      setRenaming(null);
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not rename that category.');
+    }
+  };
+
+  /**
+   * Setting a category photo saves immediately rather than waiting for a
+   * separate Save. There is only one field, and this modal has no per-row save
+   * button — an unsaved change here would just be lost on close.
+   */
+  const setCategoryPhoto = async (category: MenuCategory, file: string | null) => {
+    try {
+      await api.menu.saveCategory({
+        id: category.id,
+        name: category.name,
+        sort_order: category.sort_order,
+        image_file: file,
+      });
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save that photo.');
+    }
+  };
 
   const add = async () => {
     setBusy(true);
@@ -394,6 +543,7 @@ function CategoryModal({
     <Modal
       title={strings.menu.addCategory}
       onClose={onClose}
+      wide
       footer={
         <button className="btn" onClick={onClose}>
           {strings.common.close}
@@ -418,7 +568,58 @@ function CategoryModal({
           <tbody>
             {categories.map((category) => (
               <tr key={category.id}>
-                <td>{category.name}</td>
+                <td style={{ width: 46 }}>
+                  {category.image_file ? (
+                    <img
+                      className="category-thumb"
+                      src={imageUrl('category', category.image_file)}
+                      alt=""
+                      onError={(event) => {
+                        event.currentTarget.style.visibility = 'hidden';
+                      }}
+                    />
+                  ) : (
+                    <span className="category-thumb category-thumb-empty" />
+                  )}
+                </td>
+                <td>
+                  {renaming?.id === category.id ? (
+                    <input
+                      className="input"
+                      value={renaming.value}
+                      onChange={(event) => setRenaming({ id: category.id, value: event.target.value })}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void rename(category, renaming.value);
+                        if (event.key === 'Escape') setRenaming(null);
+                      }}
+                      autoFocus
+                    />
+                  ) : (
+                    category.name
+                  )}
+                </td>
+                <td className="right">
+                  {renaming?.id === category.id ? (
+                    <button className="btn primary sm" onClick={() => void rename(category, renaming.value)}>
+                      {strings.common.save}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn sm"
+                      onClick={() => setRenaming({ id: category.id, value: category.name })}
+                    >
+                      {strings.common.edit}
+                    </button>
+                  )}
+                </td>
+                <td className="right">
+                  <button
+                    className="btn sm"
+                    onClick={() => setPhotoFor(photoFor?.id === category.id ? null : category)}
+                  >
+                    {category.image_file ? strings.images.replace : strings.images.upload}
+                  </button>
+                </td>
                 <td className="right">
                   <button
                     className="btn ghost sm"
@@ -435,6 +636,19 @@ function CategoryModal({
       ) : (
         <div className="tiny muted">Categories become the tabs on the order screen.</div>
       )}
+
+      {photoFor ? (
+        <Field label={`${strings.images.categoryPhoto} — ${photoFor.name}`}>
+          <ImagePicker
+            kind="category"
+            value={photoFor.image_file}
+            onChange={(file) => {
+              void setCategoryPhoto(photoFor, file);
+              setPhotoFor(null);
+            }}
+          />
+        </Field>
+      ) : null}
 
       {error ? <Notice>{error}</Notice> : null}
     </Modal>

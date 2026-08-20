@@ -147,6 +147,22 @@ CREATE TABLE IF NOT EXISTS deal_items (
 
 CREATE INDEX IF NOT EXISTS idx_deal_items_deal ON deal_items(deal_id);
 
+CREATE TABLE IF NOT EXISTS menu_item_variants (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id      INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+  -- "Small", "Large", "Half", "10 Pcs" — whatever the shop calls it.
+  name         TEXT    NOT NULL,
+  -- ABSOLUTE price, not a delta. A pizza shop prices Small 600 / Large 1499
+  -- with no arithmetic relationship, and three different pizza tiers on the
+  -- same menu cannot share one set of deltas. See repositories/menu.ts.
+  sale_price   REAL    NOT NULL DEFAULT 0,
+  cost_price   REAL    NOT NULL DEFAULT 0,
+  is_available INTEGER NOT NULL DEFAULT 1,
+  sort_order   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_variants_item ON menu_item_variants(item_id, sort_order);
+
 CREATE TABLE IF NOT EXISTS staff (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,
@@ -241,6 +257,21 @@ export function migrate(): void {
 
   // The cancellations report scans by when the cancellation happened.
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_voided ON orders(status, voided_at)');
+
+  /* ---- Photos and variants (added after v1 shipped) ---------------------
+   * Images are stored as a FILENAME, not as bytes in the database. The file
+   * lives in <userData>/images/, which keeps the database small enough to
+   * copy to a USB stick in a second, lets a shop drop a whole folder of
+   * photos in at once, and means a corrupt JPEG can never damage the data.
+   */
+  addColumn('menu_items', 'image_file', 'TEXT');
+  addColumn('menu_categories', 'image_file', 'TEXT');
+  addColumn('deals', 'image_file', 'TEXT');
+
+  // Snapshot of the chosen variant, exactly like item_name: renaming "Large"
+  // tomorrow must not rewrite what a bill printed today.
+  addColumn('order_items', 'variant_name', 'TEXT');
+  addColumn('order_items', 'variant_id', 'INTEGER');
 
   // Seed any setting the build knows about but this database has not seen yet,
   // so a new key added in a later version arrives with a sane default rather

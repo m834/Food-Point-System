@@ -39,6 +39,9 @@ interface AppState {
   tablesEnabled: boolean;
   /** Who is on the counter, per the MAIN process. Null when nobody is. */
   staff: StaffSession | null;
+  /** 'dark' or 'light'. Applied to <html data-theme>. */
+  theme: 'dark' | 'light';
+  toggleTheme: () => Promise<void>;
   /** True once the owner has added anyone — then signing in is required. */
   staffRequired: boolean;
   refreshStaff: () => Promise<void>;
@@ -63,6 +66,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [staff, setStaff] = useState<StaffSession | null>(null);
   const [staffRequired, setStaffRequired] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const theme: 'dark' | 'light' =
+    settings[SETTING_KEYS.theme] === 'light' ? 'light' : 'dark';
+
+  /**
+   * The theme is an attribute on <html>, not a class on a component, because
+   * the CSS variables it swaps live on :root. Applied in an effect so a
+   * statically exported page cannot ship the wrong one baked into its HTML.
+   */
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   const toast = useCallback((message: string, kind: Toast['kind'] = 'info') => {
     const id = Date.now() + Math.random();
@@ -97,6 +112,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       /* Before activation the staff channel is closed — that is expected. */
     }
   }, []);
+
+  /**
+   * Saved to the database, not localStorage: it is a counter-wide preference
+   * that should survive a reinstall and travel in the shop's backup, like
+   * every other setting.
+   */
+  const toggleTheme = useCallback(async () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    // Paint immediately; the save is confirmation, not the mechanism.
+    document.documentElement.dataset.theme = next;
+    setSettings((current) => ({ ...current, [SETTING_KEYS.theme]: next }));
+    try {
+      await api.settings.save({ [SETTING_KEYS.theme]: next });
+    } catch {
+      /* An unsaved preference is not worth interrupting service for. */
+    }
+  }, [theme]);
 
   const signOut = useCallback(async () => {
     try {
@@ -147,6 +179,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       tablesEnabled: settings[SETTING_KEYS.enableTables] !== '0',
       staff,
       staffRequired,
+      theme,
+      toggleTheme,
       refreshStaff,
       signOut,
       refreshLicense,
@@ -159,6 +193,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       settings,
       staff,
       staffRequired,
+      theme,
+      toggleTheme,
       refreshStaff,
       signOut,
       refreshLicense,

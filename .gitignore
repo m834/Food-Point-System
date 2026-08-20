@@ -17,3 +17,11 @@ tools/keygen/*.pem
 
 # Cached cross-build native binaries
 .build-cache/
+
+# Stray build output that lands at the repo root
+/printing.js
+/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*.css
+
+# Menu photos belong in the app's data folder and travel in its backups,
+# not in the repository — they are the shop's content, not app assets.
+/Gemini_Generated_Image_*.jpeg

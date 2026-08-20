@@ -96,32 +96,52 @@
   --brand-soft: rgb(var(--brand-soft-rgb));
   --accent: rgb(var(--accent-rgb));
   --accent-2: rgb(var(--accent-2-rgb));
-  --success: rgb(var(--success-rgb));
-  --warning: rgb(var(--warning-rgb));
-  --danger: rgb(var(--danger-rgb));
+  /* Lifted for legibility on navy. The deep print-ready greens and reds go
+     muddy against a dark ground, so screen uses a brighter rendering of the
+     same brand colour. @media print puts them back to black. */
+  --success: color-mix(in srgb, rgb(var(--success-rgb)) 60%, #fff);
+  --warning: color-mix(in srgb, rgb(var(--warning-rgb)) 62%, #fff);
+  --danger: color-mix(in srgb, rgb(var(--danger-rgb)) 55%, #fff);
+  /* The saturated originals, for fills that carry white text. */
+  --success-solid: rgb(var(--success-rgb));
+  --danger-solid: rgb(var(--danger-rgb));
 
   --accent-hover: color-mix(in srgb, var(--accent) 84%, black);
   --danger-hover: color-mix(in srgb, var(--danger) 84%, black);
 
-  /* ---- Light register (the working screens) ---- */
-  --bg: rgb(var(--canvas-rgb));
-  --surface: #fff;
-  --surface-2: color-mix(in srgb, var(--bg) 55%, #fff);
-  --surface-sunken: color-mix(in srgb, var(--bg) 70%, var(--brand-deep) 3%);
-  --border: color-mix(in srgb, var(--brand-deep) 13%, transparent);
-  --border-strong: color-mix(in srgb, var(--brand-deep) 26%, transparent);
+  /* ---- The workspace surfaces ----
+     Dark, like the dashboard: the whole app is one palette, so moving from
+     the dashboard to the order screen no longer feels like two products.
 
-  --text: color-mix(in srgb, var(--brand-deep) 92%, black);
-  --text-muted: color-mix(in srgb, var(--brand-deep) 58%, var(--bg));
-  --text-faint: color-mix(in srgb, var(--brand-deep) 40%, var(--bg));
+     What is NOT copied from the dashboard is the *treatment*. These surfaces
+     are SOLID navy, not translucent glass, and they carry no gradient wash.
+     Blur behind a price column costs legibility for nothing, and a cashier
+     reads these screens for eight hours. Dark and high-contrast is fine;
+     dark and frosted is not. */
+  --panel-rgb: 20 37 60;
 
-  /* Soft tints — every one derived, so they follow a rebrand. */
-  --accent-soft: color-mix(in srgb, var(--accent) 10%, #fff);
-  --accent-border: color-mix(in srgb, var(--accent) 34%, #fff);
-  --success-soft: color-mix(in srgb, var(--success) 12%, #fff);
-  --warning-soft: color-mix(in srgb, var(--warning) 14%, #fff);
-  --danger-soft: color-mix(in srgb, var(--danger) 10%, #fff);
-  --brand-tint: color-mix(in srgb, var(--brand-deep) 6%, #fff);
+  --bg: rgb(13 27 46);
+  --surface: rgb(var(--panel-rgb));
+  --surface-2: rgb(28 49 76);
+  --surface-sunken: rgb(16 31 52);
+  --border: rgb(255 255 255 / 0.1);
+  --border-strong: rgb(255 255 255 / 0.19);
+
+  /* Text on those surfaces. --text is near-white rather than pure white:
+     pure white on navy vibrates slightly at small sizes. */
+  --text: #eaf1f9;
+  --text-muted: rgb(234 241 249 / 0.64);
+  --text-faint: rgb(234 241 249 / 0.42);
+
+  /* Soft tints are mixed into the PANEL, not into white — mixing with white
+     on a dark surface produces a pale block that glares. */
+  --accent-soft: color-mix(in srgb, var(--accent) 22%, rgb(var(--panel-rgb)));
+  --accent-border: color-mix(in srgb, var(--accent) 45%, rgb(var(--panel-rgb)));
+  --success-soft: color-mix(in srgb, var(--success) 20%, rgb(var(--panel-rgb)));
+  --warning-soft: color-mix(in srgb, var(--warning) 20%, rgb(var(--panel-rgb)));
+  --danger-soft: color-mix(in srgb, var(--danger) 22%, rgb(var(--panel-rgb)));
+  --brand-tint: color-mix(in srgb, var(--brand-soft) 30%, rgb(var(--panel-rgb)));
+
 
   /* ---- Dark register (sidebar, dashboard, activation) ---- */
   --on-dark: color-mix(in srgb, #fff 94%, var(--brand-soft));
@@ -174,6 +194,185 @@
   --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
     "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* =====================================================================
+   LIGHT THEME
+   =====================================================================
+   Only the WORKSPACE surfaces flip. The sidebar, the dashboard and the
+   activation screen stay navy in both themes — they are the RICH register,
+   and a dark nav beside a light workspace is the arrangement this app was
+   designed around.
+
+   Nothing here is a new colour. Every value is derived from the same nine
+   white-label tokens, so a rebrand still travels through both themes from
+   one edit.
+   ===================================================================== */
+
+:root[data-theme="light"] {
+  /* Tints mix into white on a light ground, not into the dark panel. */
+  --panel-rgb: 255 255 255;
+
+  --bg: rgb(var(--canvas-rgb));
+  --surface: #fff;
+  --surface-2: color-mix(in srgb, var(--bg) 55%, #fff);
+  --surface-sunken: color-mix(in srgb, var(--bg) 70%, var(--brand-deep) 3%);
+  --border: color-mix(in srgb, var(--brand-deep) 13%, transparent);
+  --border-strong: color-mix(in srgb, var(--brand-deep) 26%, transparent);
+
+  --text: color-mix(in srgb, var(--brand-deep) 92%, black);
+  --text-muted: color-mix(in srgb, var(--brand-deep) 58%, var(--bg));
+  --text-faint: color-mix(in srgb, var(--brand-deep) 40%, var(--bg));
+
+  /* The saturated brand values read correctly on white; the lifted ones the
+     dark theme needs would look washed out here. */
+  --success: rgb(var(--success-rgb));
+  --warning: rgb(var(--warning-rgb));
+  --danger: rgb(var(--danger-rgb));
+
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, #fff);
+  --accent-border: color-mix(in srgb, var(--accent) 34%, #fff);
+  --success-soft: color-mix(in srgb, var(--success) 12%, #fff);
+  --warning-soft: color-mix(in srgb, var(--warning) 14%, #fff);
+  --danger-soft: color-mix(in srgb, var(--danger) 10%, #fff);
+
+  --shadow-sm: 0 1px 2px rgb(var(--brand-deep-rgb) / 0.07);
+  --shadow-md: 0 4px 14px rgb(var(--brand-deep-rgb) / 0.08);
+  --shadow-lg: 0 18px 44px rgb(var(--brand-deep-rgb) / 0.16);
+
+  /* ---- The RICH register goes light too ----
+     The sidebar, dashboard and activation screen are painted from
+     --grad-shell, the --on-dark text trio and the glass tokens. Overriding
+     those six things flips all three screens at once, with no rule anywhere
+     needing to know which theme is active. */
+
+  /* A soft paper gradient instead of the navy one. */
+  --grad-shell: linear-gradient(170deg, #fff 0%, rgb(var(--canvas-rgb)) 70%);
+
+  /* "on-dark" now means "on light" — the names stay, the values invert. */
+  --on-dark: color-mix(in srgb, var(--brand-deep) 92%, black);
+  --on-dark-muted: color-mix(in srgb, var(--brand-deep) 58%, var(--bg));
+  --on-dark-faint: color-mix(in srgb, var(--brand-deep) 42%, var(--bg));
+
+  /* Glass over light is a faint DARK film, not a white one — white on white
+     is invisible, which is what made the panels vanish before. */
+  --glass-bg: rgb(var(--brand-deep-rgb) / 0.04);
+  --glass-bg-strong: rgb(var(--brand-deep-rgb) / 0.07);
+  --glass-border: rgb(var(--brand-deep-rgb) / 0.12);
+  --glass-highlight: rgb(255 255 255 / 0.9);
+  --shadow-glass: 0 10px 30px rgb(var(--brand-deep-rgb) / 0.1),
+    inset 0 1px 0 var(--glass-highlight);
+}
+
+/* The accent bloom behind the nav and the dashboard mesh are pitched for a
+   dark ground; at full strength on paper they look like a stain. */
+:root[data-theme="light"] .sidebar::before,
+:root[data-theme="light"] .workspace.rich::before,
+:root[data-theme="light"] .activation::before {
+  opacity: 0.5;
+}
+
+/* The logo tile is a light chip on navy; on paper it needs to stay white
+   rather than following --on-dark into near-black. */
+:root[data-theme="light"] .sidebar-brand-mark,
+:root[data-theme="light"] .activation-logo {
+  background: #fff;
+}
+
+/* Profit is lifted toward white for legibility on navy; on paper that reads
+   as a washed-out mint. */
+:root[data-theme="light"] .workspace.rich .stat.profit .stat-value {
+  color: var(--success);
+}
+
+:root[data-theme="light"] .workspace.rich .stat.danger .stat-value {
+  color: var(--danger);
+}
+
+/* Table headers inside a glass card, and the machine-id chip, were both
+   expressed as white-alpha for the dark register. */
+:root[data-theme="light"] .workspace.rich table.data th {
+  background: rgb(var(--brand-deep-rgb) / 0.045);
+}
+
+:root[data-theme="light"] .workspace.rich table.data tbody tr:hover {
+  background: rgb(var(--brand-deep-rgb) / 0.035);
+}
+
+:root[data-theme="light"] .machine-id,
+:root[data-theme="light"] .activation-card .input {
+  background: rgb(var(--brand-deep-rgb) / 0.04);
+}
+
+:root[data-theme="light"] .workspace.rich .hour-bar {
+  background: rgb(var(--brand-deep-rgb) / 0.05);
+}
+
+/* Buttons on glass borrowed a white film for hover. */
+:root[data-theme="light"] .workspace.rich .btn:not(.primary):not(.danger-solid) {
+  background: var(--surface);
+  color: var(--text);
+}
+
+:root[data-theme="light"] .workspace.rich .btn:not(.primary):not(.danger-solid):hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+:root[data-theme="light"] .staff-pick {
+  background: var(--surface);
+  color: var(--text);
+}
+
+:root[data-theme="light"] .staff-pick:hover {
+  background: var(--surface-2);
+}
+
+/* The sidebar sits on paper now, so it needs an edge to separate it from the
+   workspace — on navy the colour difference did that job by itself. */
+:root[data-theme="light"] .sidebar {
+  border-right: 1px solid var(--border);
+}
+
+:root[data-theme="light"] .sidebar-theme:hover,
+:root[data-theme="light"] .sidebar-staff-out:hover {
+  background: rgb(var(--brand-deep-rgb) / 0.06);
+}
+
+/* Tinted text was pitched for a dark ground; on white it goes the other way. */
+:root[data-theme="light"] .badge.accent {
+  color: color-mix(in srgb, var(--accent) 82%, black);
+}
+:root[data-theme="light"] .badge.success,
+:root[data-theme="light"] .notice.ok {
+  color: color-mix(in srgb, var(--success) 80%, black);
+}
+:root[data-theme="light"] .badge.warning,
+:root[data-theme="light"] .notice.warn {
+  color: color-mix(in srgb, var(--warning) 78%, black);
+}
+:root[data-theme="light"] .badge.danger,
+:root[data-theme="light"] .notice.error {
+  color: color-mix(in srgb, var(--danger) 82%, black);
+}
+:root[data-theme="light"] .btn.ok-soft {
+  color: color-mix(in srgb, var(--success) 78%, black);
+}
+:root[data-theme="light"] .table-card.occupied .table-card-total {
+  color: color-mix(in srgb, var(--accent) 80%, black);
+}
+
+/* Smooth the switch so it reads as a change of light, not a page reload. */
+body,
+.workspace,
+.card,
+.stat,
+.item-card,
+.category-card,
+.order-right,
+.order-toolbar,
+.modal {
+  transition: background-color var(--t-slow) var(--ease),
+    border-color var(--t-slow) var(--ease), color var(--t-slow) var(--ease);
 }
 
 /*
@@ -734,7 +933,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .workspace.rich .stat.profit .stat-value {
-  color: color-mix(in srgb, var(--success) 62%, #fff);
+  color: color-mix(in srgb, var(--success) 62%, rgb(var(--panel-rgb)));
 }
 
 .workspace.rich .stat.tone-b::after {
@@ -809,7 +1008,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .btn.danger-solid {
-  background: var(--danger);
+  background: var(--danger-solid);
   border-color: transparent;
   color: #fff;
 }
@@ -830,8 +1029,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 .btn.ok-soft {
   background: var(--success-soft);
-  border-color: color-mix(in srgb, var(--success) 32%, #fff);
-  color: color-mix(in srgb, var(--success) 78%, black);
+  border-color: color-mix(in srgb, var(--success) 32%, rgb(var(--panel-rgb)));
+  color: color-mix(in srgb, var(--success) 55%, rgb(var(--panel-rgb)));
 }
 
 .btn.sm {
@@ -1002,26 +1201,26 @@ table.data tbody tr:last-child td {
 
 .badge.accent {
   background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 82%, black);
+  color: color-mix(in srgb, var(--accent) 30%, rgb(var(--panel-rgb)));
   border-color: var(--accent-border);
 }
 
 .badge.success {
   background: var(--success-soft);
-  color: color-mix(in srgb, var(--success) 80%, black);
-  border-color: color-mix(in srgb, var(--success) 30%, #fff);
+  color: color-mix(in srgb, var(--success) 55%, rgb(var(--panel-rgb)));
+  border-color: color-mix(in srgb, var(--success) 30%, rgb(var(--panel-rgb)));
 }
 
 .badge.warning {
   background: var(--warning-soft);
-  color: color-mix(in srgb, var(--warning) 78%, black);
-  border-color: color-mix(in srgb, var(--warning) 34%, #fff);
+  color: color-mix(in srgb, var(--warning) 55%, rgb(var(--panel-rgb)));
+  border-color: color-mix(in srgb, var(--warning) 34%, rgb(var(--panel-rgb)));
 }
 
 .badge.danger {
   background: var(--danger-soft);
-  color: color-mix(in srgb, var(--danger) 82%, black);
-  border-color: color-mix(in srgb, var(--danger) 30%, #fff);
+  color: color-mix(in srgb, var(--danger) 55%, rgb(var(--panel-rgb)));
+  border-color: color-mix(in srgb, var(--danger) 30%, rgb(var(--panel-rgb)));
 }
 
 /* ---------------------------------------------------------------- *
@@ -1132,9 +1331,9 @@ table.data tbody tr:last-child td {
 }
 
 .cat-tab.active {
-  background: var(--brand-deep);
-  border-color: var(--brand-deep);
-  color: var(--on-dark);
+  background: var(--grad-accent);
+  border-color: transparent;
+  color: #fff;
 }
 
 .item-grid {
@@ -1152,7 +1351,7 @@ table.data tbody tr:last-child td {
   flex-direction: column;
   justify-content: space-between;
   gap: 10px;
-  min-height: 92px;
+  min-height: 116px;
   padding: 13px 14px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
@@ -1172,6 +1371,64 @@ table.data tbody tr:last-child td {
 
 .item-card:active:not(:disabled) {
   transform: translateY(0) scale(0.98);
+}
+
+/**
+ * The icon sits above the name as a quiet tinted tile — big enough to read as
+ * a shape at a glance, small enough that it never competes with the price.
+ * The card grows slightly rather than squeezing the text: on this screen the
+ * name and the total are what the order depends on.
+ */
+.item-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  flex: 0 0 auto;
+  transition: background var(--t) var(--ease), color var(--t) var(--ease);
+}
+
+.item-card:hover:not(:disabled) .item-card-icon {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* A sold-out item must not look tappable, icon included. */
+.item-card.sold-out .item-card-icon {
+  background: color-mix(in srgb, var(--text-faint) 18%, transparent);
+  color: var(--text-faint);
+}
+
+.item-card-photo {
+  width: 100%;
+  height: 74px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--surface-sunken);
+  display: block;
+}
+
+/* "from Rs 600" — the price is the cheapest size, and saying so stops a
+   cashier quoting the small price for a family pizza. */
+.item-card-from {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* The price sits inside the size button, quieter than the size name. */
+.variant-price {
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.item-card.has-photo {
+  min-height: 152px;
 }
 
 .item-card-name {
@@ -1200,6 +1457,161 @@ table.data tbody tr:last-child td {
 .item-card.sold-out .item-card-price {
   color: var(--text-faint);
   text-decoration: line-through;
+}
+
+/* ---------------------------------------------------------------- *
+   Category browsing — the first thing the counter sees
+   ---------------------------------------------------------------- */
+
+/* The grid needs a stacking context so the backdrop can sit behind it. */
+.order-left {
+  position: relative;
+  isolation: isolate;
+}
+
+/**
+ * The open category's photo, blurred far behind everything.
+ *
+ * Deliberately heavy: blur, low opacity, and a scrim on top. This is the one
+ * decorative flourish on a working screen, and it only earns its place if a
+ * price never becomes harder to read because of it. If a photo is busy or
+ * bright, the scrim is what keeps the cards legible — so it is not optional.
+ */
+.category-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  filter: blur(12px) saturate(1.15);
+  opacity: 0.15;
+  transform: scale(1.08);
+  pointer-events: none;
+  animation: backdrop-in var(--t-slow) var(--ease);
+}
+
+/* The scrim. Without it a pale photo washes out the card borders. */
+.category-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg) 22%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 58%, transparent) 100%
+  );
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.15;
+  }
+}
+
+/* The cards stay fully opaque over it. The backdrop is atmosphere; the price
+   on top of it is the job. */
+.category-backdrop ~ .item-grid .item-card {
+  background: var(--surface);
+}
+
+.category-grid {
+  grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+}
+
+.category-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 138px;
+  padding: 15px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t) var(--ease),
+    border-color var(--t) var(--ease);
+}
+
+.category-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent-border);
+}
+
+.category-card:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.category-card-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* Text sits on the photo, so it needs its own ground to stay readable. */
+.category-card.has-photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--brand-deep) 12%, transparent) 0%,
+    color-mix(in srgb, var(--brand-deep) 88%, transparent) 100%
+  );
+}
+
+.category-card.has-photo .category-card-name,
+.category-card.has-photo .category-card-count {
+  position: relative;
+  z-index: 2;
+  color: #fff;
+}
+
+.category-card.has-photo .category-card-count {
+  color: rgb(255 255 255 / 0.78);
+}
+
+.category-card-art {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: auto;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.category-card-name {
+  font-size: 16.5px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.category-card-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The Deals card leads the grid, so it carries the accent outright. */
+.category-card-deals {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
 }
 
 /* ---------------------------------------------------------------- *
@@ -1375,13 +1787,13 @@ table.data tbody tr:last-child td {
 }
 
 .open-chip.active {
-  background: var(--brand-deep);
-  border-color: var(--brand-deep);
-  color: var(--on-dark);
+  background: var(--grad-accent);
+  border-color: transparent;
+  color: #fff;
 }
 
 .open-chip.active .muted {
-  color: var(--on-dark-faint);
+  color: rgb(255 255 255 / 0.72);
 }
 
 /* An order with items still waiting to be fired. */
@@ -1396,14 +1808,16 @@ table.data tbody tr:last-child td {
 .order-header {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--brand-deep);
-  color: var(--on-dark);
+  border-left: 3px solid transparent;
+  border-image: var(--grad-accent) 1;
+  background: var(--surface-sunken);
+  color: var(--text);
   flex: 0 0 auto;
 }
 
 .order-header-no {
   font-size: 12.5px;
-  color: var(--on-dark-muted);
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1615,7 +2029,7 @@ table.data tbody tr:last-child td {
 }
 
 .table-card.occupied .table-card-total {
-  color: color-mix(in srgb, var(--accent) 80%, black);
+  color: color-mix(in srgb, var(--accent) 30%, rgb(var(--panel-rgb)));
 }
 
 /* ---------------------------------------------------------------- *
@@ -1629,7 +2043,7 @@ table.data tbody tr:last-child td {
 }
 
 .workspace.rich .stat.danger .stat-value {
-  color: color-mix(in srgb, var(--danger) 45%, #fff);
+  color: color-mix(in srgb, var(--danger) 45%, rgb(var(--panel-rgb)));
 }
 
 /* ---- The shift sign-in (rich register, shares .activation) ---- */
@@ -1693,10 +2107,38 @@ table.data tbody tr:last-child td {
   padding: 14px 12px;
 }
 
+/* The theme switch, at the foot of the nav. */
+.sidebar-theme {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  margin-top: auto;
+  padding: 9px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  background: var(--glass-bg);
+  color: var(--on-dark-muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--t) var(--ease), color var(--t) var(--ease);
+}
+
+.sidebar-theme:hover {
+  background: var(--glass-bg-strong);
+  color: var(--on-dark);
+}
+
+/* Only one element may claim the auto margin that pushes the foot down. */
+.sidebar-theme + .sidebar-staff,
+.sidebar-theme ~ .sidebar-foot {
+  margin-top: 10px;
+}
+
 /* ---- Who is on the counter, in the sidebar ---- */
 
 .sidebar-staff {
-  margin-top: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1840,6 +2282,125 @@ table.data tbody tr:last-child td {
 }
 
 /* ---------------------------------------------------------------- *
+   Image picker
+   ---------------------------------------------------------------- */
+
+.image-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Same aspect the order grid renders, so what the owner approves here is
+   what the counter actually sees. */
+.image-picker-preview {
+  width: 100%;
+  height: 132px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.image-picker-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.image-picker-empty {
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+.image-picker-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.image-picker-name {
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.image-browse {
+  margin-top: 4px;
+  padding: 11px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.image-browse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.image-browse-tile {
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--surface);
+  aspect-ratio: 1;
+  transition: border-color var(--t) var(--ease), transform var(--t-fast) var(--ease);
+}
+
+.image-browse-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.image-browse-tile:hover {
+  transform: scale(1.04);
+  border-color: var(--accent-border);
+}
+
+.image-browse-tile.active {
+  border-color: var(--accent);
+}
+
+/* The little square beside a category in the manage-categories list. */
+.category-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+
+.category-thumb-empty {
+  border-style: dashed;
+}
+
+/* One row per size in the item editor. */
+.variant-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.variant-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr auto;
+  gap: 7px;
+  align-items: center;
+}
+
+/* ---------------------------------------------------------------- *
    Empty states — invite the next action, never a blank panel
    ---------------------------------------------------------------- */
 
@@ -1965,20 +2526,20 @@ table.data tbody tr:last-child td {
 
 .notice.error {
   background: var(--danger-soft);
-  border-color: color-mix(in srgb, var(--danger) 28%, #fff);
-  color: color-mix(in srgb, var(--danger) 82%, black);
+  border-color: color-mix(in srgb, var(--danger) 28%, rgb(var(--panel-rgb)));
+  color: color-mix(in srgb, var(--danger) 55%, rgb(var(--panel-rgb)));
 }
 
 .notice.warn {
   background: var(--warning-soft);
-  border-color: color-mix(in srgb, var(--warning) 32%, #fff);
-  color: color-mix(in srgb, var(--warning) 78%, black);
+  border-color: color-mix(in srgb, var(--warning) 32%, rgb(var(--panel-rgb)));
+  color: color-mix(in srgb, var(--warning) 55%, rgb(var(--panel-rgb)));
 }
 
 .notice.ok {
   background: var(--success-soft);
-  border-color: color-mix(in srgb, var(--success) 28%, #fff);
-  color: color-mix(in srgb, var(--success) 80%, black);
+  border-color: color-mix(in srgb, var(--success) 28%, rgb(var(--panel-rgb)));
+  color: color-mix(in srgb, var(--success) 55%, rgb(var(--panel-rgb)));
 }
 
 .toast-wrap {
@@ -1995,12 +2556,12 @@ table.data tbody tr:last-child td {
 .toast {
   padding: 12px 16px;
   border-radius: var(--radius);
-  background: var(--brand-deep);
-  color: var(--on-dark);
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 13.5px;
   font-weight: 500;
   box-shadow: var(--shadow-lg);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-strong);
   max-width: 380px;
   animation: toast-in var(--t-slow) var(--ease);
 }
@@ -2018,10 +2579,16 @@ table.data tbody tr:last-child td {
 
 .toast.ok {
   background: color-mix(in srgb, var(--success) 88%, black);
+  /* Explicit: this background is deep in BOTH themes, so it must not follow
+     --text, which flips to near-black on light. */
+  color: #fff;
+  border-color: color-mix(in srgb, var(--success) 60%, black);
 }
 
 .toast.error {
   background: color-mix(in srgb, var(--danger) 88%, black);
+  color: #fff;
+  border-color: color-mix(in srgb, var(--danger) 60%, black);
 }
 
 /* ---------------------------------------------------------------- *

@@ -135,7 +135,9 @@ export function buildCustomerBill(order: Order): string {
     const qty = `${trimQty(item.qty)} x `;
     const amount = money(item.line_total, symbol);
     const nameWidth = WIDTH - amount.length - qty.length - 1;
-    const nameLines = wrap(item.item_name, nameWidth, ' '.repeat(qty.length));
+    // The size is part of what was bought: "Chicken Tikka (Large)".
+    const label = item.variant_name ? `${item.item_name} (${item.variant_name})` : item.item_name;
+    const nameLines = wrap(label, nameWidth, ' '.repeat(qty.length));
 
     out.push(row(qty + nameLines[0], amount));
     for (const extra of nameLines.slice(1)) out.push(extra);
@@ -209,7 +211,11 @@ export function buildKitchenTicket(order: Order, fired: OrderItem[]): string {
     }
 
     const qty = `${trimQty(item.qty)} x `;
-    for (const [i, text] of wrap(item.item_name.toUpperCase(), WIDTH - qty.length, ' '.repeat(qty.length)).entries()) {
+    // The kitchen needs the size most of all — it decides the dough.
+    const kitchenLabel = item.variant_name
+      ? `${item.item_name} (${item.variant_name})`
+      : item.item_name;
+    for (const [i, text] of wrap(kitchenLabel.toUpperCase(), WIDTH - qty.length, ' '.repeat(qty.length)).entries()) {
       out.push(i === 0 ? qty + text : text);
     }
     for (const mod of item.modifiers) out.push(`   - ${mod.name}`);

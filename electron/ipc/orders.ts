@@ -46,6 +46,7 @@ function parseLines(raw: unknown): NewOrderLine[] {
       modifier_ids: line.modifier_ids
         ? asArray(line.modifier_ids, 'Modifiers', 30).map((id) => asId(id, 'Modifier'))
         : [],
+      variant_id: asOptionalId(line.variant_id, 'Size'),
     };
   });
 }

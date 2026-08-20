@@ -5,7 +5,8 @@ import { AppShell } from '@/components/AppShell';
 import { useApp } from '@/components/AppContext';
 import { Badge, Card, Empty, Field, Modal, Notice } from '@/components/ui';
 import { IconPlus, IconTrash } from '@/components/icons';
-import { api } from '@/lib/api';
+import { ImagePicker } from '@/components/ImagePicker';
+import { api, imageUrl } from '@/lib/api';
 import { strings } from '@/lib/strings';
 import { money } from '@/lib/format';
 import type { Deal, MenuItem } from '../../../shared/types';
@@ -97,6 +98,7 @@ export default function DealsPage() {
             <table className="data">
               <thead>
                 <tr>
+                  <th style={{ width: 52 }} />
                   <th>{strings.deals.name}</th>
                   <th>{strings.deals.contents}</th>
                   <th className="right">{strings.deals.menuValue}</th>
@@ -113,6 +115,20 @@ export default function DealsPage() {
 
                   return (
                     <tr key={deal.id}>
+                      <td>
+                        {deal.image_file ? (
+                          <img
+                            className="category-thumb"
+                            src={imageUrl('deal', deal.image_file)}
+                            alt=""
+                            onError={(event) => {
+                              event.currentTarget.style.visibility = 'hidden';
+                            }}
+                          />
+                        ) : (
+                          <span className="category-thumb category-thumb-empty" />
+                        )}
+                      </td>
                       <td>
                         <div className="deal-name-cell">
                           <strong>{deal.name}</strong>
@@ -212,6 +228,7 @@ function DealModal({
   const [price, setPrice] = useState(deal ? String(deal.price) : '');
   const [isActive, setIsActive] = useState(deal ? deal.is_active === 1 : true);
   const [notes, setNotes] = useState(deal?.notes ?? '');
+  const [image, setImage] = useState<string | null>(deal?.image_file ?? null);
   const [components, setComponents] = useState<DraftComponent[]>(
     deal?.components.map((c) => ({ menu_item_id: c.menu_item_id, qty: c.qty })) ?? [],
   );
@@ -257,6 +274,7 @@ function DealModal({
         is_active: isActive,
         sort_order: deal?.sort_order ?? 0,
         notes: notes || null,
+        image_file: image,
         components,
       });
       await onSaved();
@@ -379,6 +397,10 @@ function DealModal({
           </div>
         </div>
       ) : null}
+
+      <Field label={strings.deals.photo}>
+        <ImagePicker kind="deal" value={image} onChange={setImage} />
+      </Field>
 
       <Field label={strings.deals.active}>
         <div className="row" style={{ gap: 8 }}>

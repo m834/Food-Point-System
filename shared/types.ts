@@ -18,6 +18,7 @@ export interface MenuCategory {
   id: number;
   name: string;
   sort_order: number;
+  image_file: string | null;
 }
 
 export interface MenuItem {
@@ -33,8 +34,17 @@ export interface MenuItem {
   barcode: string | null;
   sort_order: number;
   notes: string | null;
+  /** Filename inside <userData>/images/. Null when no photo is set. */
+  image_file: string | null;
   /** Modifier groups attached to this item, hydrated for the order screen. */
   modifier_groups?: ModifierGroup[];
+  /**
+   * Sizes/portions. Empty for a single-price item; when present the order
+   * screen asks which one before the line is added.
+   */
+  variants: MenuItemVariant[];
+  /** Cheapest variant price, so the grid can show "from Rs 600". */
+  price_from?: number;
 }
 
 /* ------------------------------------------------------------------ *
@@ -61,6 +71,7 @@ export interface Deal {
   is_active: number;
   sort_order: number;
   notes: string | null;
+  image_file: string | null;
   components: DealComponent[];
   /** What the parts would cost bought separately — shows the saving. */
   menu_value: number;
@@ -78,6 +89,25 @@ export interface DealLineSpec {
   line_total: number;
   deal_id: number;
   deal_name: string;
+}
+
+/**
+ * A size/portion of a menu item, with its OWN absolute price.
+ *
+ * Deliberately not a modifier with a price delta. A pizza menu carries several
+ * unrelated pricing tiers — stuffed at 1749/1999, white sauce at
+ * 749/1299/1699/2199, red at 600/1199/1499/1999 — and a shared delta cannot
+ * express them at once. Half/Full portions differ per dish for the same
+ * reason. Storing the real price removes the arithmetic entirely.
+ */
+export interface MenuItemVariant {
+  id: number;
+  item_id: number;
+  name: string;
+  sale_price: number;
+  cost_price: number;
+  is_available: number;
+  sort_order: number;
 }
 
 export type SelectionType = 'single' | 'multi';
@@ -167,6 +197,9 @@ export interface OrderItem {
   deal_id: number | null;
   deal_group: number | null;
   deal_name: string | null;
+  /** Snapshot of the chosen size, e.g. "Large". Null for single-price items. */
+  variant_name: string | null;
+  variant_id: number | null;
 }
 
 /**
@@ -195,6 +228,8 @@ export interface NewOrderLine {
   qty: number;
   notes?: string | null;
   modifier_ids?: number[];
+  /** Which size was chosen. Required when the item has variants. */
+  variant_id?: number | null;
 }
 
 /** A compact open order for the "which orders are running" strip. */
@@ -422,6 +457,8 @@ export const SETTING_KEYS = {
   currencySymbol: 'currency_symbol',
   /** Hashed. Blank means voids are open — see spec §4. */
   managerPin: 'manager_pin',
+  /** 'dark' or 'light'. The counter's choice, kept across restarts. */
+  theme: 'theme',
 } as const;
 
 export const DEFAULT_SETTINGS: SettingsMap = {
@@ -435,6 +472,7 @@ export const DEFAULT_SETTINGS: SettingsMap = {
   [SETTING_KEYS.serviceChargePercent]: '0',
   [SETTING_KEYS.currencySymbol]: 'Rs.',
   [SETTING_KEYS.managerPin]: '',
+  [SETTING_KEYS.theme]: 'dark',
 };
 
 /** Labels live here so the whole app names an order type the same way. */

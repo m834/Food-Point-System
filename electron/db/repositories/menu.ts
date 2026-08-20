@@ -1,6 +1,12 @@
 import { getDb } from '../connection';
 import { money } from '../money';
-import type { MenuCategory, MenuItem, Modifier, ModifierGroup } from '../../../shared/types';
+import type {
+  MenuCategory,
+  MenuItem,
+  MenuItemVariant,
+  Modifier,
+  ModifierGroup,
+} from '../../../shared/types';
 
 /* ------------------------------------------------------------------ *
  * Categories
@@ -8,29 +14,32 @@ import type { MenuCategory, MenuItem, Modifier, ModifierGroup } from '../../../s
 
 export function listCategories(): MenuCategory[] {
   return getDb()
-    .prepare('SELECT id, name, sort_order FROM menu_categories ORDER BY sort_order, name')
+    .prepare('SELECT id, name, sort_order, image_file FROM menu_categories ORDER BY sort_order, name')
     .all() as MenuCategory[];
 }
 
-export function saveCategory(input: { id?: number; name: string; sort_order?: number }): MenuCategory {
+export function saveCategory(input: {
+  id?: number;
+  name: string;
+  sort_order?: number;
+  image_file?: string | null;
+}): MenuCategory {
   const db = getDb();
   if (input.id) {
-    db.prepare('UPDATE menu_categories SET name = ?, sort_order = ? WHERE id = ?').run(
-      input.name,
-      input.sort_order ?? 0,
-      input.id,
-    );
+    db.prepare(
+      'UPDATE menu_categories SET name = ?, sort_order = ?, image_file = ? WHERE id = ?',
+    ).run(input.name, input.sort_order ?? 0, input.image_file ?? null, input.id);
     return getCategory(input.id)!;
   }
   const info = db
-    .prepare('INSERT INTO menu_categories (name, sort_order) VALUES (?, ?)')
-    .run(input.name, input.sort_order ?? 0);
+    .prepare('INSERT INTO menu_categories (name, sort_order, image_file) VALUES (?, ?, ?)')
+    .run(input.name, input.sort_order ?? 0, input.image_file ?? null);
   return getCategory(Number(info.lastInsertRowid))!;
 }
 
 export function getCategory(id: number): MenuCategory | null {
   return (getDb()
-    .prepare('SELECT id, name, sort_order FROM menu_categories WHERE id = ?')
+    .prepare('SELECT id, name, sort_order, image_file FROM menu_categories WHERE id = ?')
     .get(id) as MenuCategory | undefined) ?? null;
 }
 
@@ -46,7 +55,7 @@ export function removeCategory(id: number): void {
 const ITEM_SELECT = `
   SELECT i.id, i.name, i.category_id, c.name AS category_name,
          i.sale_price, i.cost_price, i.is_available, i.barcode,
-         i.sort_order, i.notes
+         i.sort_order, i.notes, i.image_file
   FROM menu_items i
   LEFT JOIN menu_categories c ON c.id = i.category_id
 `;
@@ -78,11 +87,57 @@ export function listItems(query: ItemQuery = {}): MenuItem[] {
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
     ' ORDER BY c.sort_order, c.name, i.sort_order, i.name';
 
-  return getDb().prepare(sql).all(...params) as MenuItem[];
+  const rows = getDb().prepare(sql).all(...params) as MenuItem[];
+  return hydrateVariants(rows);
+}
+
+/**
+ * Attach each item's sizes in ONE query rather than one per row.
+ *
+ * The order screen lists the whole menu on every render, so a per-item query
+ * here is 50+ round trips on a machine that is also taking orders.
+ */
+function hydrateVariants(items: MenuItem[]): MenuItem[] {
+  if (!items.length) return items;
+  const db = getDb();
+
+  const variants = db
+    .prepare(
+      `SELECT id, item_id, name, sale_price, cost_price, is_available, sort_order
+         FROM menu_item_variants
+        WHERE item_id IN (${items.map(() => '?').join(', ')})
+        ORDER BY sort_order, id`,
+    )
+    .all(...items.map((i) => i.id)) as MenuItemVariant[];
+
+  return items.map((item) => {
+    const mine = variants.filter((v) => v.item_id === item.id);
+    return {
+      ...item,
+      variants: mine,
+      // What the grid shows: the cheapest size, labelled "from".
+      price_from: mine.length
+        ? Math.min(...mine.filter((v) => v.is_available === 1).map((v) => v.sale_price))
+        : item.sale_price,
+    };
+  });
+}
+
+/** One variant, for pricing a line the moment it is added. */
+export function getVariant(id: number): MenuItemVariant | null {
+  return (
+    (getDb()
+      .prepare(
+        `SELECT id, item_id, name, sale_price, cost_price, is_available, sort_order
+           FROM menu_item_variants WHERE id = ?`,
+      )
+      .get(id) as MenuItemVariant | undefined) ?? null
+  );
 }
 
 export function getItem(id: number): MenuItem | null {
-  return (getDb().prepare(`${ITEM_SELECT} WHERE i.id = ?`).get(id) as MenuItem | undefined) ?? null;
+  const row = getDb().prepare(`${ITEM_SELECT} WHERE i.id = ?`).get(id) as MenuItem | undefined;
+  return row ? hydrateVariants([row])[0] : null;
 }
 
 export interface ItemInput {
@@ -95,8 +150,15 @@ export interface ItemInput {
   barcode: string | null;
   sort_order: number;
   notes: string | null;
+  /** Filename in <userData>/images/. Undefined leaves the current one alone. */
+  image_file?: string | null;
   /** Modifier groups to attach. Replaces whatever was attached before. */
   modifier_group_ids?: number[];
+  /**
+   * Sizes. Undefined leaves them untouched; an empty array clears them and
+   * turns the item back into a single-price one.
+   */
+  variants?: Array<{ name: string; sale_price: number; cost_price: number }>;
 }
 
 export function saveItem(input: ItemInput): MenuItem {
@@ -109,7 +171,8 @@ export function saveItem(input: ItemInput): MenuItem {
       db.prepare(
         `UPDATE menu_items
             SET name = ?, category_id = ?, sale_price = ?, cost_price = ?,
-                is_available = ?, barcode = ?, sort_order = ?, notes = ?
+                is_available = ?, barcode = ?, sort_order = ?, notes = ?,
+                image_file = COALESCE(?, image_file)
           WHERE id = ?`,
       ).run(
         input.name,
@@ -120,14 +183,16 @@ export function saveItem(input: ItemInput): MenuItem {
         input.barcode || null,
         input.sort_order,
         input.notes || null,
+        input.image_file === undefined ? null : input.image_file,
         id,
       );
     } else {
       const info = db
         .prepare(
           `INSERT INTO menu_items
-             (name, category_id, sale_price, cost_price, is_available, barcode, sort_order, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             (name, category_id, sale_price, cost_price, is_available, barcode,
+              sort_order, notes, image_file)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.name,
@@ -138,6 +203,7 @@ export function saveItem(input: ItemInput): MenuItem {
           input.barcode || null,
           input.sort_order,
           input.notes || null,
+          input.image_file ?? null,
         );
       id = Number(info.lastInsertRowid);
     }
@@ -148,6 +214,22 @@ export function saveItem(input: ItemInput): MenuItem {
         'INSERT OR IGNORE INTO item_modifier_groups (item_id, group_id) VALUES (?, ?)',
       );
       for (const groupId of input.modifier_group_ids) link.run(id, groupId);
+    }
+
+    /**
+     * Sizes are replaced wholesale. Past order lines are unaffected — they
+     * snapshotted variant_name and the price onto the row at the time of sale,
+     * so repricing Large tomorrow cannot rewrite yesterday's bill.
+     */
+    if (input.variants) {
+      db.prepare('DELETE FROM menu_item_variants WHERE item_id = ?').run(id);
+      const insert = db.prepare(
+        `INSERT INTO menu_item_variants (item_id, name, sale_price, cost_price, sort_order)
+         VALUES (?, ?, ?, ?, ?)`,
+      );
+      input.variants.forEach((variant, index) => {
+        insert.run(id, variant.name, money(variant.sale_price), money(variant.cost_price), index);
+      });
     }
 
     return id;

@@ -40,6 +40,12 @@ const api = {
       ipcRenderer.invoke('deals:setActive', id, active),
   },
 
+  images: {
+    list: (kind: string) => ipcRenderer.invoke('images:list', kind),
+    choose: (kind: string) => ipcRenderer.invoke('images:choose', kind),
+    importFolder: (kind: string) => ipcRenderer.invoke('images:importFolder', kind),
+  },
+
   tables: {
     list: () => ipcRenderer.invoke('tables:list'),
     save: (table: unknown) => ipcRenderer.invoke('tables:save', table),

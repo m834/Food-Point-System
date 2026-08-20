@@ -30,7 +30,7 @@ import type { Deal, DealComponent, DealLineSpec } from '../../../shared/types';
  * ------------------------------------------------------------------ */
 
 const DEAL_SELECT = `
-  SELECT id, name, price, is_active, sort_order, notes
+  SELECT id, name, price, is_active, sort_order, notes, image_file
   FROM deals
 `;
 
@@ -92,6 +92,7 @@ export interface DealInput {
   is_active: boolean;
   sort_order: number;
   notes: string | null;
+  image_file?: string | null;
   components: Array<{ menu_item_id: number; qty: number }>;
 }
 
@@ -107,7 +108,8 @@ export function saveDeal(input: DealInput): Deal {
 
     if (id) {
       db.prepare(
-        `UPDATE deals SET name = ?, price = ?, is_active = ?, sort_order = ?, notes = ?
+        `UPDATE deals SET name = ?, price = ?, is_active = ?, sort_order = ?, notes = ?,
+                          image_file = ?
           WHERE id = ?`,
       ).run(
         input.name,
@@ -115,12 +117,14 @@ export function saveDeal(input: DealInput): Deal {
         input.is_active ? 1 : 0,
         input.sort_order,
         input.notes || null,
+        input.image_file ?? null,
         id,
       );
     } else {
       const info = db
         .prepare(
-          'INSERT INTO deals (name, price, is_active, sort_order, notes) VALUES (?, ?, ?, ?, ?)',
+          `INSERT INTO deals (name, price, is_active, sort_order, notes, image_file)
+           VALUES (?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.name,
@@ -128,6 +132,7 @@ export function saveDeal(input: DealInput): Deal {
           input.is_active ? 1 : 0,
           input.sort_order,
           input.notes || null,
+          input.image_file ?? null,
         );
       id = Number(info.lastInsertRowid);
     }

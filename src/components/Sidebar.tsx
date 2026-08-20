@@ -12,13 +12,15 @@ import {
   IconOrder,
   IconReceipt,
   IconReports,
+  IconMoon,
   IconSettings,
+  IconSun,
   IconTables,
 } from './icons';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { tablesEnabled, staff, signOut } = useApp();
+  const { tablesEnabled, staff, signOut, theme, toggleTheme } = useApp();
 
   const links = [
     { href: '/', label: strings.nav.dashboard, icon: <IconDashboard /> },
@@ -63,6 +65,18 @@ export function Sidebar() {
           {link.label}
         </Link>
       ))}
+
+      {/* The theme switch. Sits with the other persistent controls at the
+          foot rather than in Settings: a counter changes this when the light
+          in the room changes, not when configuring the shop. */}
+      <button
+        className="sidebar-theme"
+        onClick={() => void toggleTheme()}
+        title={theme === 'dark' ? strings.theme.toLight : strings.theme.toDark}
+      >
+        {theme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />}
+        <span>{theme === 'dark' ? strings.theme.light : strings.theme.dark}</span>
+      </button>
 
       {/* Who is on the counter. Present at all times so a cancellation can
           never be made under a name the person did not notice they were using. */}

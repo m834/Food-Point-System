@@ -1,8 +1,8 @@
 {
   "name": "code-hustlers-food-point",
-  "version": "1.0.0",
+  "version": "1.4.3",
   "private": true,
-  "description": "Code Hustlers \u2014 Food-Point Billing & POS. Fully offline desktop application for takeaway counters, caf\u00e9s, dhabas and small restaurants.",
+  "description": "Code Hustlers — Food-Point Billing & POS. Fully offline desktop application for takeaway counters, cafés, dhabas and small restaurants.",
   "author": "Code Hustlers",
   "main": "dist-electron/electron/main.js",
   "scripts": {
@@ -20,7 +20,8 @@
     "seed": "electron tools/seed-demo.js",
     "keygen:init": "node tools/keygen/generate-keypair.js",
     "keygen": "node tools/keygen/keygen.js",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "import:menu": "electron tools/import-menu.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
@@ -78,6 +79,14 @@
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false,
       "shortcutName": "Food Point"
+    },
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "category": "public.app-category.business",
+      "icon": "build/icon.png",
+      "identity": null
     }
   }
 }

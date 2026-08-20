@@ -1,5 +1,6 @@
 import { registerBackupHandlers } from './backup';
 import { registerDealHandlers } from './deals';
+import { registerImageHandlers } from './images';
 import { registerLicenseHandlers } from './license';
 import { registerMenuHandlers } from './menu';
 import { registerOrderHandlers } from './orders';
@@ -15,6 +16,7 @@ export function registerIpcHandlers(): void {
   registerStaffHandlers();
   registerMenuHandlers();
   registerDealHandlers();
+  registerImageHandlers();
   registerTableHandlers();
   registerOrderHandlers();
   registerReportHandlers();

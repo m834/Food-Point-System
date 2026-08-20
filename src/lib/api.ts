@@ -55,6 +55,14 @@ export function hasBridge(): boolean {
   return Boolean((globalThis as unknown as { api?: unknown }).api);
 }
 
+/** Which upload folder a photo belongs in. */
+export type ImageKind = 'category' | 'menu-item' | 'deal';
+
+/** Build the app:// URL for a stored photo basename. */
+export function imageUrl(kind: ImageKind, file: string): string {
+  return `app://foodpoint/media/${kind}/${encodeURIComponent(file)}`;
+}
+
 export interface PrintOutcome {
   printed: boolean;
   warning?: string;
@@ -91,6 +99,13 @@ export const api = {
     save: (deal: Record<string, unknown>) => call<Deal>('deals', 'save', deal),
     remove: (id: number) => call<null>('deals', 'remove', id),
     setActive: (id: number, active: boolean) => call<Deal>('deals', 'setActive', id, active),
+  },
+
+  images: {
+    list: (kind: ImageKind) => call<string[]>('images', 'list', kind),
+    choose: (kind: ImageKind) => call<{ file: string } | null>('images', 'choose', kind),
+    importFolder: (kind: ImageKind) =>
+      call<{ copied: number; skipped: number }>('images', 'importFolder', kind),
   },
 
   tables: {
@@ -165,7 +180,7 @@ export const api = {
 
   backup: {
     now: () => call<BackupRecord>('backup', 'now'),
-    restore: () => call<{ restored: boolean }>('backup', 'restore'),
+    restore: () => call<{ restored: boolean; images?: number }>('backup', 'restore'),
     history: () => call<BackupRecord[]>('backup', 'history'),
     last: () => call<BackupRecord | null>('backup', 'last'),
   },

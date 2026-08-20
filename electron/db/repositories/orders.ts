@@ -1,6 +1,6 @@
 import { getDb } from '../connection';
 import { money, nowIso, orderNoPrefix } from '../money';
-import { getItem, getModifiersByIds } from './menu';
+import { getItem, getModifiersByIds, getVariant } from './menu';
 import { buildDealLines } from './deals';
 import { openOrderIdForTable } from './tables';
 import { serviceChargePercent } from './settings';
@@ -54,7 +54,7 @@ function hydrate(row: OrderRow): Order {
       `SELECT id, order_id, menu_item_id, item_name, qty, cost_price, sale_price,
               line_total, notes, kitchen_status, fired_at, void_reason, voided_at,
               void_reason_code, void_note, voided_by_staff_id,
-              deal_id, deal_group, deal_name
+              deal_id, deal_group, deal_name, variant_name, variant_id
          FROM order_items WHERE order_id = ? ORDER BY id`,
     )
     .all(row.id) as Array<Omit<OrderItem, 'modifiers'>>;
@@ -224,8 +224,8 @@ export function addItems(orderId: number, lines: NewOrderLine[]): Order {
     const insertItem = db.prepare(
       `INSERT INTO order_items
          (order_id, menu_item_id, item_name, qty, cost_price, sale_price,
-          line_total, notes, kitchen_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new')`,
+          line_total, notes, kitchen_status, variant_name, variant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`,
     );
     const insertMod = db.prepare(
       'INSERT INTO order_item_modifiers (order_item_id, name, price_delta) VALUES (?, ?, ?)',
@@ -242,19 +242,53 @@ export function addItems(orderId: number, lines: NewOrderLine[]): Order {
       }
       if (!(line.qty > 0)) throw new Error(`Quantity for ${item.name} must be more than zero.`);
 
+      /**
+       * Which size, and therefore which price.
+       *
+       * A variant carries an ABSOLUTE price, not a delta, so once one is
+       * chosen it replaces the item's own price outright. An item that has
+       * sizes must be sold as one of them — falling back to the base price
+       * would silently charge a Family pizza at the Small rate.
+       */
+      let unitPrice = item.sale_price;
+      let unitCost = item.cost_price;
+      let variantName: string | null = null;
+      let variantId: number | null = null;
+
+      if (item.variants.length) {
+        if (!line.variant_id) {
+          throw new Error(`Choose a size for ${item.name}.`);
+        }
+        const variant = getVariant(line.variant_id);
+        if (!variant || variant.item_id !== item.id) {
+          throw new Error(`That size is no longer on ${item.name}.`);
+        }
+        if (!variant.is_available) {
+          throw new Error(`${item.name} (${variant.name}) is sold out.`);
+        }
+        unitPrice = variant.sale_price;
+        unitCost = variant.cost_price;
+        variantName = variant.name;
+        variantId = variant.id;
+      } else if (line.variant_id) {
+        throw new Error(`${item.name} does not come in sizes.`);
+      }
+
       const chosen = getModifiersByIds(line.modifier_ids ?? []);
       const delta = chosen.reduce((sum, mod) => sum + mod.price_delta, 0);
-      const lineTotal = money(line.qty * (item.sale_price + delta));
+      const lineTotal = money(line.qty * (unitPrice + delta));
 
       const info = insertItem.run(
         orderId,
         item.id,
         item.name,
         line.qty,
-        money(item.cost_price),
-        money(item.sale_price),
+        money(unitCost),
+        money(unitPrice),
         lineTotal,
         line.notes || null,
+        variantName,
+        variantId,
       );
 
       const lineId = Number(info.lastInsertRowid);

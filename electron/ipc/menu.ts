@@ -25,6 +25,9 @@ export function registerMenuHandlers(): void {
       id: asOptionalId(raw.id, 'Category') ?? undefined,
       name: asString(raw.name, 'Category name', { max: 60 }),
       sort_order: raw.sort_order === undefined ? 0 : asNumber(raw.sort_order, 'Sort order', { min: 0, max: 9999 }),
+      image_file: raw.image_file
+        ? asString(raw.image_file, 'Image', { required: false, max: 200 })
+        : null,
     });
   });
 
@@ -64,6 +67,22 @@ export function registerMenuHandlers(): void {
       barcode: raw.barcode ? asString(raw.barcode, 'Barcode', { required: false, max: 40 }) : null,
       sort_order: raw.sort_order === undefined ? 0 : asNumber(raw.sort_order, 'Sort order', { min: 0, max: 9999 }),
       notes: raw.notes ? asString(raw.notes, 'Note', { required: false, max: 200 }) : null,
+      image_file:
+        raw.image_file === undefined
+          ? undefined
+          : raw.image_file
+            ? asString(raw.image_file, 'Image', { required: false, max: 200 })
+            : null,
+      variants: raw.variants
+        ? asArray(raw.variants, 'Sizes', 20).map((entry) => {
+            const v = (entry ?? {}) as Record<string, unknown>;
+            return {
+              name: asString(v.name, 'Size name', { max: 40 }),
+              sale_price: asMoney(v.sale_price, 'Size price'),
+              cost_price: v.cost_price === undefined ? 0 : asMoney(v.cost_price, 'Size cost'),
+            };
+          })
+        : undefined,
       modifier_group_ids: raw.modifier_group_ids
         ? asArray(raw.modifier_group_ids, 'Modifier groups', 20).map((id) => asId(id, 'Modifier group'))
         : undefined,

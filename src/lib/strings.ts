@@ -50,6 +50,7 @@ export const strings = {
     deleteConfirm: 'Delete this deal? Past bills keep their record of it.',
     itemsCount: (n: number) => `${n} item${n === 1 ? '' : 's'}`,
     inDeal: 'Deal',
+    photo: 'Deal photo',
   },
 
   staff: {
@@ -82,6 +83,28 @@ export const strings = {
       'Add the people who work the counter. Until you do, cancellations are recorded without a name.',
     signInPrompt: 'Sign in to start taking orders.',
     wrongPin: "That PIN doesn't match.",
+  },
+
+  theme: {
+    dark: 'Dark',
+    light: 'Light',
+    toLight: 'Switch to the light theme',
+    toDark: 'Switch to the dark theme',
+  },
+
+  images: {
+    photo: 'Photo',
+    upload: 'Upload photo',
+    replace: 'Replace photo',
+    pickExisting: 'Pick existing',
+    importFolder: 'Import a whole folder',
+    remove: 'Remove',
+    noPhoto: 'No photo',
+    missingFile: 'Photo file missing',
+    pickOne: 'Tap a photo to use it',
+    folderEmpty: 'No photos uploaded yet.',
+    categoryPhoto: 'Category photo',
+    itemPhoto: 'Item photo',
   },
 
   cancel: {
@@ -184,6 +207,10 @@ export const strings = {
     optional: 'optional',
     search: 'Search the menu',
     allItems: 'All',
+    itemCount: (n: number) => `${n} item${n === 1 ? '' : 's'}`,
+    chooseSize: 'Choose a size',
+    chooseSizeHint: 'The price changes with the size.',
+    from: 'from',
     dealsTab: 'Deals',
     addDeal: 'Add deal to order',
     dealAdded: 'Deal added to the order.',
@@ -236,6 +263,11 @@ export const strings = {
   menu: {
     title: 'Menu',
     addItem: 'Add item',
+    sizes: 'Sizes',
+    sizesHint: 'Add a row for each size. Leave empty for a single-price item.',
+    sizeName: 'Size name',
+    addSize: 'Add a size',
+    noSizes: 'No sizes — this item has one price.',
     addCategory: 'Add category',
     itemName: 'Item name',
     category: 'Category',

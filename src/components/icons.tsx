@@ -160,3 +160,22 @@ export function IconCancel({ size = 18 }: Props) {
     </svg>
   );
 }
+
+/** Sun — shown when the app is dark, offering the light theme. */
+export function IconSun({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <circle cx="12" cy="12" r="4.2" />
+      <path d="M12 2.4v2.2M12 19.4v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.4 12h2.2M19.4 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6" />
+    </svg>
+  );
+}
+
+/** Moon — shown when the app is light, offering the dark theme. */
+export function IconMoon({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.6 8.6 0 1 0 11.1 11.1Z" />
+    </svg>
+  );
+}

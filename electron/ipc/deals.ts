@@ -53,6 +53,9 @@ export function registerDealHandlers(): void {
       sort_order:
         raw.sort_order === undefined ? 0 : asNumber(raw.sort_order, 'Sort order', { min: 0, max: 9999 }),
       notes: raw.notes ? asString(raw.notes, 'Note', { required: false, max: 200 }) : null,
+      image_file: raw.image_file
+        ? asString(raw.image_file, 'Image', { required: false, max: 200 })
+        : null,
       components,
     });
   });

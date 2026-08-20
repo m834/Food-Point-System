@@ -6,8 +6,9 @@ import { AppShell } from '@/components/AppShell';
 import { useApp } from '@/components/AppContext';
 import { Empty, Field, Modal, Notice } from '@/components/ui';
 import { CancelModal } from '@/components/CancelModal';
-import { IconFire, IconSearch } from '@/components/icons';
-import { api } from '@/lib/api';
+import { foodIconFor } from '@/components/foodIcons';
+import { IconDeal, IconFire, IconSearch } from '@/components/icons';
+import { api, imageUrl } from '@/lib/api';
 import { strings } from '@/lib/strings';
 import { money, qty as fmtQty, since } from '@/lib/format';
 import {
@@ -136,15 +137,43 @@ function OrderWorkspace() {
     else if (startTableId) setStartOpen(true);
   }, [loading, resumeOrderId, startTableId, selectOrder]);
 
+  const term = search.trim().toLowerCase();
+
+  /**
+   * Browsing categories, or looking at one.
+   *
+   * With 50+ dishes a single flat grid is a scrolling contest, so the counter
+   * starts at the categories and taps into one. Searching always jumps
+   * straight to matching items across the whole menu — a cashier who knows the
+   * dish name should never have to guess which category it lives in.
+   */
+  const browsingCategories = activeCategory === null && !term;
+
   const visibleItems = useMemo(() => {
     if (activeCategory === 'deals') return [];
-    const term = search.trim().toLowerCase();
+    if (activeCategory === null && !term) return [];
     return items.filter((item) => {
-      if (activeCategory && item.category_id !== activeCategory) return false;
+      if (typeof activeCategory === 'number' && item.category_id !== activeCategory) return false;
       if (term && !item.name.toLowerCase().includes(term)) return false;
       return true;
     });
-  }, [items, activeCategory, search]);
+  }, [items, activeCategory, term]);
+
+  /** Category cards, with how many dishes are in each. */
+  const categoryCards = useMemo(
+    () =>
+      categories.map((category) => ({
+        category,
+        count: items.filter((item) => item.category_id === category.id).length,
+      })),
+    [categories, items],
+  );
+
+  /** The chosen category, whose photo becomes the backdrop. */
+  const openCategory =
+    typeof activeCategory === 'number'
+      ? categories.find((c) => c.id === activeCategory) ?? null
+      : null;
 
   /**
    * Deals lead the grid on "All" and own the Deals tab, because a combo is the
@@ -153,9 +182,11 @@ function OrderWorkspace() {
    */
   const visibleDeals = useMemo(() => {
     if (typeof activeCategory === 'number') return [];
-    const term = search.trim().toLowerCase();
+    // Deals lead their own tab and any search, but not the category browser —
+    // that view is about choosing a section, not about buying yet.
+    if (activeCategory === null && !term) return [];
     return deals.filter((deal) => !term || deal.name.toLowerCase().includes(term));
-  }, [deals, activeCategory, search]);
+  }, [deals, activeCategory, term]);
 
   /** Tapping an item: straight onto the order, unless it has options to pick. */
   const tapItem = async (item: MenuItem) => {
@@ -167,7 +198,9 @@ function OrderWorkspace() {
 
     try {
       const hydrated = await api.menu.getItem(item.id);
-      if (hydrated.modifier_groups?.length) {
+      // Sizes MUST be chosen — the backend refuses a line without one — and
+      // modifiers are offered when the item has them.
+      if (hydrated.variants?.length || hydrated.modifier_groups?.length) {
         setModifierItem(hydrated);
         return;
       }
@@ -202,12 +235,19 @@ function OrderWorkspace() {
     quantity: number,
     notes: string | null,
     modifierIds: number[],
+    variantId: number | null = null,
   ) => {
     if (!order) return;
     setBusy(true);
     try {
       const updated = await api.orders.addItems(order.id, [
-        { menu_item_id: menuItemId, qty: quantity, notes, modifier_ids: modifierIds },
+        {
+          menu_item_id: menuItemId,
+          qty: quantity,
+          notes,
+          modifier_ids: modifierIds,
+          variant_id: variantId,
+        },
       ]);
       setOrder(updated);
       await refreshOpen();
@@ -345,9 +385,12 @@ function OrderWorkspace() {
           <div className="cat-tabs">
             <button
               className={`cat-tab${activeCategory === null ? ' active' : ''}`}
-              onClick={() => setActiveCategory(null)}
+              onClick={() => {
+                setActiveCategory(null);
+                setSearch('');
+              }}
             >
-              {strings.order.allItems}
+              {activeCategory === null ? strings.order.allItems : `← ${strings.order.allItems}`}
             </button>
             {deals.length ? (
               <button
@@ -369,7 +412,46 @@ function OrderWorkspace() {
           </div>
         </div>
 
-        {visibleItems.length === 0 && visibleDeals.length === 0 ? (
+        {/* The chosen category's photo, blurred far behind the cards.
+            Heavily veiled on purpose: this is a working screen, and a
+            legible price beats a pretty backdrop every time. */}
+        {openCategory?.image_file ? (
+          <div
+            className="category-backdrop"
+            style={{
+              backgroundImage: `url(${imageUrl('category', openCategory.image_file)})`,
+            }}
+            aria-hidden="true"
+          />
+        ) : null}
+
+        {browsingCategories ? (
+          <div className="item-grid category-grid">
+            {deals.length ? (
+              <button
+                className="category-card category-card-deals"
+                onClick={() => setActiveCategory('deals')}
+              >
+                <span className="category-card-art">
+                  <IconDeal size={30} />
+                </span>
+                <span className="category-card-name">{strings.order.dealsTab}</span>
+                <span className="category-card-count">
+                  {strings.order.itemCount(deals.length)}
+                </span>
+              </button>
+            ) : null}
+
+            {categoryCards.map(({ category, count }) => (
+              <CategoryCard
+                key={category.id}
+                category={category}
+                count={count}
+                onOpen={() => setActiveCategory(category.id)}
+              />
+            ))}
+          </div>
+        ) : visibleItems.length === 0 && visibleDeals.length === 0 ? (
           <Empty
             title={items.length ? 'Nothing matches that' : strings.menu.emptyTitle}
             note={items.length ? 'Try a different search or category.' : strings.menu.emptyNote}
@@ -379,11 +461,22 @@ function OrderWorkspace() {
             {visibleDeals.map((deal) => (
               <button
                 key={`deal-${deal.id}`}
-                className={`item-card deal-card${deal.is_sellable ? '' : ' sold-out'}`}
+                className={`item-card deal-card${deal.is_sellable ? '' : ' sold-out'}${deal.image_file ? ' has-photo' : ''}`}
                 onClick={() => tapDeal(deal)}
                 disabled={!deal.is_sellable || busy}
                 title={deal.components.map((c) => `${c.qty} × ${c.item_name}`).join(' + ')}
               >
+                {deal.image_file ? (
+                  <img
+                    className="item-card-photo"
+                    src={imageUrl('deal', deal.image_file)}
+                    alt=""
+                    loading="lazy"
+                    onError={(event) => {
+                      event.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : null}
                 <span className="deal-card-tag">{strings.deals.inDeal}</span>
                 <span className="item-card-name">{deal.name}</span>
                 <span className="deal-card-parts">
@@ -404,20 +497,12 @@ function OrderWorkspace() {
               </button>
             ))}
             {visibleItems.map((item) => (
-              <button
+              <ItemCard
                 key={item.id}
-                className={`item-card${item.is_available ? '' : ' sold-out'}`}
-                onClick={() => tapItem(item)}
+                item={item}
                 disabled={!item.is_available || busy}
-              >
-                <span className="item-card-name">{item.name}</span>
-                <span className="row-between">
-                  <span className="item-card-price">{money(item.sale_price)}</span>
-                  {item.is_available ? null : (
-                    <span className="tiny muted">{strings.order.soldOut}</span>
-                  )}
-                </span>
-              </button>
+                onTap={() => tapItem(item)}
+              />
             ))}
           </div>
         )}
@@ -633,9 +718,9 @@ function OrderWorkspace() {
         <ModifierModal
           item={modifierItem}
           onClose={() => setModifierItem(null)}
-          onAdd={async (quantity, notes, modifierIds) => {
+          onAdd={async (quantity, notes, modifierIds, variantId) => {
             setModifierItem(null);
-            await addLine(modifierItem.id, quantity, notes, modifierIds);
+            await addLine(modifierItem.id, quantity, notes, modifierIds, variantId);
           }}
         />
       ) : null}
@@ -804,12 +889,28 @@ function ModifierModal({
 }: {
   item: MenuItem;
   onClose: () => void;
-  onAdd: (qty: number, notes: string | null, modifierIds: number[]) => void | Promise<void>;
+  onAdd: (
+    qty: number,
+    notes: string | null,
+    modifierIds: number[],
+    variantId: number | null,
+  ) => void | Promise<void>;
 }) {
   const groups: ModifierGroup[] = item.modifier_groups ?? [];
+  const variants = item.variants ?? [];
   const [chosen, setChosen] = useState<Record<number, number[]>>({});
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState('');
+  /**
+   * Pre-select the first available size rather than leaving it blank.
+   *
+   * A counter under pressure should be able to tap the item then tap Add for
+   * the common case; making them choose every time would cost a tap on every
+   * single pizza. The sizes are all visible, so an unusual one is one tap away.
+   */
+  const [variantId, setVariantId] = useState<number | null>(
+    variants.find((v) => v.is_available === 1)?.id ?? null,
+  );
 
   const toggle = (group: ModifierGroup, modifierId: number) => {
     setChosen((current) => {
@@ -832,6 +933,10 @@ function ModifierModal({
     .filter((mod) => selectedIds.includes(mod.id))
     .reduce((sum, mod) => sum + mod.price_delta, 0);
 
+  // A variant price REPLACES the item price; it is not added to it.
+  const chosenVariant = variants.find((v) => v.id === variantId) ?? null;
+  const unitPrice = chosenVariant ? chosenVariant.sale_price : item.sale_price;
+
   return (
     <Modal
       title={item.name}
@@ -841,12 +946,34 @@ function ModifierModal({
           <button className="btn" onClick={onClose}>
             {strings.common.cancel}
           </button>
-          <button className="btn primary" onClick={() => onAdd(quantity, notes || null, selectedIds)}>
-            {strings.order.addToOrder} · {money((item.sale_price + delta) * quantity)}
+          <button
+            className="btn primary"
+            onClick={() => onAdd(quantity, notes || null, selectedIds, variantId)}
+            disabled={variants.length > 0 && !variantId}
+          >
+            {strings.order.addToOrder} · {money((unitPrice + delta) * quantity)}
           </button>
         </>
       }
     >
+      {variants.length ? (
+        <Field label={strings.order.chooseSize} hint={strings.order.chooseSizeHint}>
+          <div className="reason-grid">
+            {variants.map((variant) => (
+              <button
+                key={variant.id}
+                className={`cat-tab${variantId === variant.id ? ' active' : ''}`}
+                onClick={() => setVariantId(variant.id)}
+                disabled={variant.is_available !== 1}
+              >
+                {variant.name}
+                <span className="variant-price"> {money(variant.sale_price)}</span>
+              </button>
+            ))}
+          </div>
+        </Field>
+      ) : null}
+
       {groups.map((group) => (
         <Field
           key={group.id}
@@ -1012,5 +1139,109 @@ function ChargeModal({
 
       {error ? <Notice>{error}</Notice> : null}
     </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * One tappable item on the grid
+ * ------------------------------------------------------------------ */
+
+/**
+ * Photo when the shop has one, drawn icon when it does not.
+ *
+ * The two are not interchangeable at render time: a menu imported from a
+ * spreadsheet carries the photo FILENAMES before the photos themselves
+ * arrive, so `image_file` being set is not proof the file exists. Hiding a
+ * broken image would leave a hole the size of a photo at the top of the card;
+ * falling back to the icon keeps every card the same shape.
+ */
+function ItemCard({
+  item,
+  disabled,
+  onTap,
+}: {
+  item: MenuItem;
+  disabled: boolean;
+  onTap: () => void;
+}) {
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const showPhoto = Boolean(item.image_file) && !photoFailed;
+  const Icon = foodIconFor(item.name, item.category_name);
+  const hasSizes = item.variants.length > 0;
+
+  return (
+    <button
+      className={`item-card${item.is_available ? '' : ' sold-out'}${showPhoto ? ' has-photo' : ''}`}
+      onClick={onTap}
+      disabled={disabled}
+      title={hasSizes ? item.variants.map((v) => v.name).join(' · ') : undefined}
+    >
+      {showPhoto ? (
+        <img
+          className="item-card-photo"
+          src={imageUrl('menu-item', item.image_file!)}
+          alt=""
+          loading="lazy"
+          onError={() => setPhotoFailed(true)}
+        />
+      ) : (
+        <span className="item-card-icon" aria-hidden="true">
+          <Icon size={20} />
+        </span>
+      )}
+
+      <span className="item-card-name">{item.name}</span>
+
+      <span className="row-between">
+        <span className="item-card-price">
+          {hasSizes ? <span className="item-card-from">{strings.order.from} </span> : null}
+          {money(hasSizes ? item.price_from ?? item.sale_price : item.sale_price)}
+        </span>
+        {item.is_available ? null : <span className="tiny muted">{strings.order.soldOut}</span>}
+      </span>
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * One category on the browse grid
+ * ------------------------------------------------------------------ */
+
+/**
+ * A category as a big tappable card: its photo when the shop has one, an icon
+ * drawn from the category name when it does not, plus how many dishes are
+ * inside so the counter knows what it is opening.
+ */
+function CategoryCard({
+  category,
+  count,
+  onOpen,
+}: {
+  category: MenuCategory;
+  count: number;
+  onOpen: () => void;
+}) {
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const showPhoto = Boolean(category.image_file) && !photoFailed;
+  const Icon = foodIconFor(category.name, category.name);
+
+  return (
+    <button className={`category-card${showPhoto ? ' has-photo' : ''}`} onClick={onOpen}>
+      {showPhoto ? (
+        <img
+          className="category-card-photo"
+          src={imageUrl('category', category.image_file!)}
+          alt=""
+          loading="lazy"
+          onError={() => setPhotoFailed(true)}
+        />
+      ) : (
+        <span className="category-card-art">
+          <Icon size={30} />
+        </span>
+      )}
+      <span className="category-card-name">{category.name}</span>
+      <span className="category-card-count">{strings.order.itemCount(count)}</span>
+    </button>
   );
 }

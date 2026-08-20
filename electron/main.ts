@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { getDb, closeDb } from './db/connection';
 import { migrate } from './db/migrate';
 import { registerIpcHandlers } from './ipc';
+import { resolveImage } from './services/images';
 
 /**
  * Spec §3 and §11 put the food point's data in %APPDATA%/CodeHustlersFood/ —
@@ -45,6 +46,7 @@ const MIME: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
@@ -61,6 +63,31 @@ function registerAppProtocol(): void {
   protocol.handle('app', async (request) => {
     const url = new URL(request.url);
     let pathname = decodeURIComponent(url.pathname);
+
+    /**
+     * Photos live in <userData>/images/, outside the exported UI, so they get
+     * their own route. resolveImage() rejects any name that is not a plain
+     * filename with an image extension inside that folder, which is what keeps
+     * this from becoming a read-anything hole in an otherwise sealed scheme.
+     */
+    if (pathname.startsWith('/media/')) {
+      // /media/<kind>/<filename> — the kind selects the upload subfolder.
+      const [kind, ...rest] = pathname.slice('/media/'.length).split('/');
+      const file = resolveImage(kind, rest.join('/'));
+      if (!file) return new Response('Not found', { status: 404 });
+      try {
+        const body = await fs.promises.readFile(file);
+        return new Response(body, {
+          status: 200,
+          headers: {
+            'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
+            'Cache-Control': 'no-cache',
+          },
+        });
+      } catch {
+        return new Response('Not found', { status: 404 });
+      }
+    }
 
     if (pathname.endsWith('/')) pathname += 'index.html';
     if (!path.extname(pathname)) pathname += '/index.html';
