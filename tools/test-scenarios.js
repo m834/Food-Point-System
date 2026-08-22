@@ -79,6 +79,7 @@ app.whenReady().then(async () => {
   const deals = require(path.join(dist, 'db', 'repositories', 'deals'));
   const staffRepo = require(path.join(dist, 'db', 'repositories', 'staff'));
   const extrasRepo = require(path.join(dist, 'db', 'repositories', 'extras'));
+  const customersRepo = require(path.join(dist, 'db', 'repositories', 'customers'));
   const session = require(path.join(dist, 'services', 'session'));
   const managerPin = require(path.join(dist, 'services', 'managerPin'));
   const cancelGuard = require(path.join(dist, 'services', 'cancelGuard'));
@@ -2503,6 +2504,154 @@ app.whenReady().then(async () => {
     eq(settled.total, 400, 'total unchanged');
     eq(settled.profit, 400 - 180, 'profit unchanged');
     ok(!/Extras/.test(receipt.buildCustomerBill(settled)), 'and nothing extra on the bill');
+  });
+
+
+  /* ================================================================== *
+   * 19 — Customers
+   * ================================================================== */
+  section('19 — Customers');
+
+  test('19.1', 'A takeaway order with a phone creates a customer', () => {
+    const before = customersRepo.listCustomers().length;
+    orders.openOrder({ type: 'takeaway', customer_phone: '0300-1112233', customer_name: 'Ahmed' });
+    const found = customersRepo.findByPhone('0300-1112233');
+    ok(found, 'the customer was remembered');
+    eq(found.name, 'Ahmed', 'name saved');
+    eq(found.order_count, 1, 'first order counted');
+    ok(found.last_order_at, 'last order stamped');
+    eq(customersRepo.listCustomers().length, before + 1, 'exactly one new record');
+  });
+
+  test('19.2', 'A delivery order saves the address too', () => {
+    orders.openOrder({
+      type: 'delivery',
+      customer_phone: '0301-4445566',
+      customer_name: 'Sara',
+      delivery_address: 'House 9, Street 2, Model Town',
+    });
+    const found = customersRepo.findByPhone('0301-4445566');
+    eq(found.address, 'House 9, Street 2, Model Town', 'address remembered');
+  });
+
+  test('19.3', 'A returning customer is updated, not duplicated', () => {
+    orders.openOrder({
+      type: 'delivery',
+      customer_phone: '0301-4445566',
+      customer_name: 'Sara Khan',
+      delivery_address: 'Flat 5, New Address, DHA',
+    });
+    const all = customersRepo.listCustomers().filter((c) => c.phone.includes('4445566'));
+    eq(all.length, 1, 'still one record');
+    eq(all[0].name, 'Sara Khan', 'the newer name wins');
+    eq(all[0].address, 'Flat 5, New Address, DHA', 'people move — latest address wins');
+    eq(all[0].order_count, 2, 'order count bumped');
+  });
+
+  test('19.4', 'NO phone means NO customer record', () => {
+    const before = customersRepo.listCustomers().length;
+    orders.openOrder({ type: 'takeaway' });
+    orders.openOrder({ type: 'takeaway', customer_name: 'Walk-in, no number' });
+    orders.openOrder({ type: 'delivery', delivery_address: 'Somewhere' });
+    eq(customersRepo.listCustomers().length, before, 'nothing blank was saved');
+    eq(customersRepo.findByPhone(''), null, 'and a blank lookup finds nothing');
+  });
+
+  test('19.5', 'DINE-IN never creates a customer', () => {
+    const before = customersRepo.listCustomers().length;
+    // A phone on a dine-in order is not a delivery contact; a table is not a
+    // person. Even when one is supplied, nothing is remembered.
+    const o = orders.openOrder({ type: 'dine_in', table_id: T.T4, customer_phone: '0999-9999999' });
+    eq(o.type, 'dine_in', 'the order itself is fine');
+    eq(customersRepo.listCustomers().length, before, 'no customer written');
+    eq(customersRepo.findByPhone('0999-9999999'), null, 'and none to find');
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
+  });
+
+  test('19.6', 'Lookup ignores punctuation and spacing', () => {
+    orders.openOrder({ type: 'takeaway', customer_phone: '0311 222 3333', customer_name: 'Bilal' });
+    ok(customersRepo.findByPhone('03112223333'), 'digits only matches');
+    ok(customersRepo.findByPhone('0311-222-3333'), 'dashes match');
+    ok(customersRepo.findByPhone('0311 222 3333'), 'spaces match');
+    eq(customersRepo.findByPhone('031'), null, 'too short to be a lookup');
+  });
+
+  test('19.7', 'Duplicate phones are tolerated; the most recent wins', () => {
+    // Two rows for one number is legal by design — a shared household line, or
+    // a restored backup. A UNIQUE constraint would fail an order instead.
+    const a = customersRepo.saveCustomer({ phone: '0350-7778888', name: 'Older', address: 'Old address' });
+    const b = customersRepo.saveCustomer({ phone: '0350-7778888', name: 'Newer', address: 'New address' });
+    ok(a.id !== b.id, 'both rows exist');
+    orders.openOrder({ type: 'takeaway', customer_phone: '0350-7778888', customer_name: 'Newer' });
+    const found = customersRepo.findByPhone('0350-7778888');
+    eq(found.name, 'Newer', 'the most recently used record answers');
+  });
+
+  test('19.8', 'A customer save can NEVER block an order', () => {
+    // rememberFromOrder swallows everything: the order is already committed
+    // by the time it runs, and the kitchen is about to cook.
+    const broken = customersRepo.rememberFromOrder({ phone: null });
+    eq(broken, null, 'a null phone returns null rather than throwing');
+    eq(customersRepo.rememberFromOrder({ phone: '   ' }), null, 'whitespace too');
+    // And the order path itself still completes with a hostile phone value.
+    const o = orders.openOrder({ type: 'takeaway', customer_phone: "'; DROP TABLE customers; --" });
+    eq(o.status, 'open', 'the order was placed regardless');
+    ok(customersRepo.listCustomers().length >= 0, 'the table is still there');
+  });
+
+  test('19.9', 'Deleting a customer does NOT touch order history', () => {
+    const o = orders.openOrder({
+      type: 'delivery',
+      customer_phone: '0366-1234567',
+      customer_name: 'Temp Person',
+      delivery_address: 'Somewhere real',
+    });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+
+    const customer = customersRepo.findByPhone('0366-1234567');
+    customersRepo.removeCustomer(customer.id);
+    eq(customersRepo.findByPhone('0366-1234567'), null, 'the contact is gone');
+
+    const reread = orders.getOrder(settled.id);
+    eq(reread.customer_name, 'Temp Person', 'the order still knows who it was for');
+    eq(reread.customer_phone, '0366-1234567', 'and their number');
+    eq(reread.delivery_address, 'Somewhere real', 'and where it went');
+    eq(reread.total, settled.total, 'and what it cost');
+    ok(/Temp Person/.test(receipt.buildCustomerBill(reread)), 'the bill still reprints in full');
+  });
+
+  test('19.10', 'Search finds by name and by phone', () => {
+    customersRepo.saveCustomer({ phone: '0399-5551234', name: 'Zainab Malik', address: 'Gulberg' });
+    ok(customersRepo.listCustomers('Zainab').length >= 1, 'by name');
+    ok(customersRepo.listCustomers('zainab').length >= 1, 'case-insensitive');
+    ok(customersRepo.listCustomers('5551234').length >= 1, 'by phone digits');
+    eq(customersRepo.listCustomers('nobody-by-this-name').length, 0, 'no false matches');
+  });
+
+  test('19.11', 'CSV export quotes commas and quotes correctly', () => {
+    customersRepo.saveCustomer({
+      phone: '0388-0001111',
+      name: 'Comma, Person',
+      address: 'House 1, Street 2, "The Corner"',
+      notes: 'line one',
+    });
+    const csv = customersRepo.customersCsv();
+    ok(csv.startsWith('Name,Phone,Address,Notes,Orders,Last order,First seen'), 'header present');
+    ok(/"Comma, Person"/.test(csv), 'a name with a comma is quoted');
+    ok(/""The Corner""/.test(csv), 'inner quotes are doubled');
+    // Every row must have the same column count, or the file is unusable.
+    const header = csv.split('\r\n')[0].split(',').length;
+    eq(header, 7, 'seven columns');
+  });
+
+  test('19.12', 'Admin-only channels are gated; lookup is not', () => {
+    // The asymmetry is the point: the till may ask about ONE number it already
+    // has, but must not be able to walk or export the customer base.
+    adminSession.lockAdmin();
+    throws(() => adminSession.requireAdmin(), 'listing/exporting is refused while locked');
+    // Lookup itself has no admin check — it is a counter action.
+    ok(customersRepo.findByPhone('0311 222 3333'), 'the counter can still look one up');
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

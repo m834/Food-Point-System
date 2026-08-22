@@ -22,6 +22,7 @@ import {
   type OpenOrderSummary,
   type Order,
   type OrderType,
+  type Customer,
   type ExtraCharge,
   type SettingsMap,
 } from '../../../shared/types';
@@ -822,6 +823,47 @@ function StartOrderModal({
   );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  /** The saved customer behind the typed phone, if there is one. */
+  const [known, setKnown] = useState<Customer | null>(null);
+
+  /**
+   * Look the phone up as it is typed.
+   *
+   * Debounced, because the counter types a number one digit at a time and a
+   * query per keystroke is wasted work on a machine that is also taking
+   * orders. Everything found is a SUGGESTION: the fields stay editable, so a
+   * customer ordering to a different address today is not fighting the app.
+   */
+  useEffect(() => {
+    if (type === 'dine_in') return;
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 4) {
+      setKnown(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const found = await api.customers.lookup(phone);
+        if (cancelled) return;
+        setKnown(found);
+        // Only fill blanks. Whatever the counter has already typed for THIS
+        // order wins over what is on file.
+        if (found) {
+          setName((current) => current || found.name || '');
+          setAddress((current) => current || found.address || '');
+        }
+      } catch {
+        /* A lookup failure must never get in the way of taking an order. */
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [phone, type]);
 
   useEffect(() => {
     if (!tablesEnabled) return;
@@ -950,13 +992,37 @@ function StartOrderModal({
           ) : null}
 
           <div className="field-row">
+            <Field
+              label={`${strings.order.customerPhone} (${strings.order.optional})`}
+              hint={strings.order.phoneLookupHint}
+            >
+              <input
+                className="input num"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                inputMode="tel"
+              />
+            </Field>
             <Field label={`${strings.order.customerName} (${strings.order.optional})`}>
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
-            <Field label={`${strings.order.customerPhone} (${strings.order.optional})`}>
-              <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </Field>
           </div>
+
+          {/* A known customer, and anything the counter should know about
+              them. Everything above stays editable — this is a suggestion. */}
+          {known ? (
+            <div className="customer-hit">
+              <div className="row-between">
+                <span className="customer-hit-name">
+                  {known.name || strings.customers.unnamed}
+                </span>
+                <span className="tiny muted">
+                  {strings.customers.ordersBefore(known.order_count)}
+                </span>
+              </div>
+              {known.notes ? <div className="customer-hit-note">“{known.notes}”</div> : null}
+            </div>
+          ) : null}
         </>
       )}
 

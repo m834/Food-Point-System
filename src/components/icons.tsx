@@ -199,3 +199,14 @@ export function IconLock({ size = 18 }: Props) {
     </svg>
   );
 }
+
+/** Customers — a person with a contact card. */
+export function IconCustomers({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <circle cx="9" cy="8" r="3.4" />
+      <path d="M2.8 20.2a6.2 6.2 0 0 1 12.4 0" />
+      <path d="M16.4 8.6h4.8M16.4 12h4.8" />
+    </svg>
+  );
+}

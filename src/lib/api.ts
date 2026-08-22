@@ -3,6 +3,7 @@ import type {
   BestSeller,
   CancellationsReport,
   CancelReasonCode,
+  Customer,
   DashboardSummary,
   Deal,
   ExtraCharge,
@@ -114,6 +115,16 @@ export const api = {
     choose: (kind: ImageKind) => call<{ file: string } | null>('images', 'choose', kind),
     importFolder: (kind: ImageKind) =>
       call<{ copied: number; skipped: number }>('images', 'importFolder', kind),
+  },
+
+  customers: {
+    /** Open to the counter — one record for a number already typed. */
+    lookup: (phone: string) => call<Customer | null>('customers', 'lookup', phone),
+    list: (search?: string) => call<Customer[]>('customers', 'list', search),
+    get: (id: number) => call<Customer>('customers', 'get', id),
+    save: (customer: Record<string, unknown>) => call<Customer>('customers', 'save', customer),
+    remove: (id: number) => call<null>('customers', 'remove', id),
+    csv: () => call<{ path: string; count: number }>('customers', 'csv'),
   },
 
   extras: {

@@ -190,6 +190,26 @@ CREATE TABLE IF NOT EXISTS order_extras (
 
 CREATE INDEX IF NOT EXISTS idx_order_extras_order ON order_extras(order_id);
 
+CREATE TABLE IF NOT EXISTS customers (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- The lookup key, but deliberately NOT UNIQUE. A shared household number, a
+  -- mistyped digit corrected later, or a restored backup can all produce two
+  -- rows for one number; a UNIQUE constraint would turn any of those into a
+  -- failed order at the counter. Duplicates are tolerated and the most recent
+  -- wins on lookup — see repositories/customers.ts.
+  phone         TEXT    NOT NULL,
+  name          TEXT,
+  address       TEXT,
+  -- "No chilli", "gate at the back", "always pays card".
+  notes         TEXT,
+  created_at    TEXT    NOT NULL,
+  last_order_at TEXT,
+  order_count   INTEGER NOT NULL DEFAULT 0
+);
+
+-- Every lookup is by phone, on every takeaway and delivery order.
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+
 CREATE TABLE IF NOT EXISTS staff (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,

@@ -3,6 +3,7 @@ import { money, nowIso, orderNoPrefix } from '../money';
 import { getItem, getModifiersByIds, getVariant } from './menu';
 import { buildDealLines } from './deals';
 import { openOrderIdForTable } from './tables';
+import { rememberFromOrder } from './customers';
 import {
   extrasCost,
   listOrderExtras,
@@ -234,7 +235,28 @@ export function openOrder(input: OpenOrderInput): Order {
     return Number(info.lastInsertRowid);
   });
 
-  return getOrder(run())!;
+  const orderId = run();
+
+  /**
+   * Remember the customer — AFTER the transaction, deliberately.
+   *
+   * The order is already committed by this point, so a problem writing the
+   * convenience record cannot roll back an order the kitchen is about to
+   * cook. `rememberFromOrder` never throws, and a blank phone is ignored
+   * rather than creating a record nobody can look up.
+   *
+   * Dine-in is skipped: a table number is not a person, and nobody phones
+   * ahead to sit down.
+   */
+  if (input.type !== 'dine_in') {
+    rememberFromOrder({
+      phone: input.customer_phone,
+      name: input.customer_name,
+      address: input.delivery_address,
+    });
+  }
+
+  return getOrder(orderId)!;
 }
 
 /**

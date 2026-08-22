@@ -7,6 +7,7 @@ import { strings } from '@/lib/strings';
 import { ADMIN_HOME, COUNTER_HOME } from '@/lib/areas';
 import {
   IconCancel,
+  IconCustomers,
   IconDashboard,
   IconDeal,
   IconMenu,
@@ -46,6 +47,7 @@ export function Sidebar() {
     { href: '/', label: strings.nav.dashboard, icon: <IconDashboard /> },
     { href: '/reports/', label: strings.nav.reports, icon: <IconReports /> },
     { href: '/cancellations/', label: strings.nav.cancellations, icon: <IconCancel /> },
+    { href: '/customers/', label: strings.nav.customers, icon: <IconCustomers /> },
     { href: '/menu/', label: strings.nav.menu, icon: <IconMenu /> },
     { href: '/deals/', label: strings.nav.deals, icon: <IconDeal /> },
     { href: '/settings/', label: strings.nav.settings, icon: <IconSettings /> },

@@ -23,6 +23,7 @@ export const strings = {
     deals: 'Deals',
     reports: 'Reports',
     cancellations: 'Cancellations',
+    customers: 'Customers',
     sales: 'Sales',
     settings: 'Settings',
   },
@@ -110,6 +111,31 @@ export const strings = {
     light: 'Light',
     toLight: 'Switch to the light theme',
     toDark: 'Switch to the dark theme',
+  },
+
+  customers: {
+    title: 'Customers',
+    subtitle: 'Saved by phone number from takeaway and delivery orders.',
+    unnamed: 'Saved customer',
+    ordersBefore: (n: number) => `${n} order${n === 1 ? '' : 's'} before`,
+    search: 'Search name or phone',
+    name: 'Name',
+    phone: 'Phone',
+    address: 'Address',
+    notes: 'Notes',
+    orders: 'Orders',
+    lastOrder: 'Last order',
+    never: 'Never',
+    edit: 'Edit customer',
+    exportCsv: 'Export CSV',
+    exported: (n: number) => `${n} customers exported.`,
+    deleteConfirm:
+      'Delete this customer? Their past orders are kept — only the saved contact is removed.',
+    deleted: 'Customer deleted. Past orders are untouched.',
+    emptyTitle: 'No customers yet',
+    emptyNote:
+      'A customer is saved automatically whenever a takeaway or delivery order is placed with a phone number.',
+    noResults: 'Nobody matches that search.',
   },
 
   extras: {
@@ -244,6 +270,7 @@ export const strings = {
     deliveryAddressHint: 'Required — the rider needs somewhere to go.',
     deliveryAddressPlaceholder: 'House / street / area',
     deliveryCharge: 'Delivery charge',
+    phoneLookupHint: 'Type a saved number to fill in the name and address.',
     deliveryNeedsAddress: 'Enter the delivery address before starting the order.',
     customerName: 'Customer name',
     customerPhone: 'Phone',

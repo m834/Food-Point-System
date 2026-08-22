@@ -53,6 +53,15 @@ const api = {
     importFolder: (kind: string) => ipcRenderer.invoke('images:importFolder', kind),
   },
 
+  customers: {
+    lookup: (phone: string) => ipcRenderer.invoke('customers:lookup', phone),
+    list: (search?: string) => ipcRenderer.invoke('customers:list', search),
+    get: (id: number) => ipcRenderer.invoke('customers:get', id),
+    save: (customer: unknown) => ipcRenderer.invoke('customers:save', customer),
+    remove: (id: number) => ipcRenderer.invoke('customers:remove', id),
+    csv: () => ipcRenderer.invoke('customers:csv'),
+  },
+
   extras: {
     list: (activeOnly?: boolean) => ipcRenderer.invoke('extras:list', activeOnly),
     save: (extra: unknown) => ipcRenderer.invoke('extras:save', extra),

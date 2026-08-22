@@ -307,6 +307,31 @@ export interface DiningTable {
 }
 
 /* ------------------------------------------------------------------ *
+ * Customers — remembered by phone number
+ * ------------------------------------------------------------------ */
+
+/**
+ * A returning customer, looked up by the phone number the counter already
+ * asks for on takeaway and delivery orders.
+ *
+ * Its whole purpose is saving the counter from typing an address twice. The
+ * record is a convenience layer over what the order already stores — orders
+ * keep their own snapshot of name, phone and address, so deleting a customer
+ * can never alter what a past bill said.
+ */
+export interface Customer {
+  id: number;
+  phone: string;
+  name: string | null;
+  address: string | null;
+  /** Anything the counter should know: "gate at the back", "no chilli". */
+  notes: string | null;
+  created_at: string;
+  last_order_at: string | null;
+  order_count: number;
+}
+
+/* ------------------------------------------------------------------ *
  * Staff & cancellations — the accountability layer
  * ------------------------------------------------------------------ */
 
