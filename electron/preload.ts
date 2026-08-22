@@ -13,6 +13,13 @@ const api = {
     version: () => ipcRenderer.invoke('app:version'),
   },
 
+  admin: {
+    status: () => ipcRenderer.invoke('admin:status'),
+    unlock: (pin: string) => ipcRenderer.invoke('admin:unlock', pin),
+    initialise: (pin: string) => ipcRenderer.invoke('admin:initialise', pin),
+    lock: () => ipcRenderer.invoke('admin:lock'),
+  },
+
   menu: {
     listCategories: () => ipcRenderer.invoke('menu:listCategories'),
     saveCategory: (category: unknown) => ipcRenderer.invoke('menu:saveCategory', category),

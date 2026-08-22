@@ -2107,13 +2107,71 @@ table.data tbody tr:last-child td {
   padding: 14px 12px;
 }
 
+/* Which area you are in. Small, but it is the only thing on screen that
+   distinguishes the owner's portal from the till at a glance. */
+.sidebar-area {
+  padding: 2px 12px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--on-dark-faint);
+}
+
+.sidebar-area.admin {
+  color: color-mix(in srgb, var(--accent) 70%, var(--on-dark));
+}
+
+/* The crossing point between counter and admin. */
+.sidebar-admin {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  margin-top: auto;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--on-dark-muted);
+  font-size: 13.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--t) var(--ease), color var(--t) var(--ease),
+    border-color var(--t) var(--ease);
+}
+
+.sidebar-admin:hover {
+  background: var(--glass-bg-strong);
+  color: var(--on-dark);
+  border-color: var(--glass-highlight);
+}
+
+/* Leaving admin is the accent action — it is the one the owner should find
+   without looking, so the takings do not sit on screen unattended. */
+.sidebar-admin.exit {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: color-mix(in srgb, var(--accent) 75%, var(--on-dark));
+}
+
+.sidebar-admin.exit:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+}
+
+/* Only one element may claim the auto margin that pushes the foot down. */
+.sidebar-admin + .sidebar-theme,
+.sidebar-admin ~ .sidebar-staff,
+.sidebar-admin ~ .sidebar-foot {
+  margin-top: 10px;
+}
+
 /* The theme switch, at the foot of the nav. */
 .sidebar-theme {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
-  margin-top: auto;
   padding: 9px 12px;
   border: 1px solid var(--glass-border);
   border-radius: var(--radius);
@@ -2282,6 +2340,119 @@ table.data tbody tr:last-child td {
 }
 
 /* ---------------------------------------------------------------- *
+   Slip preview + staff manager (admin settings)
+   ---------------------------------------------------------------- */
+
+.slip-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+  gap: 20px;
+  align-items: start;
+}
+
+/* Roughly the proportions of an 80mm roll, in a monospace face, so the owner
+   can judge whether their name and logo actually fit before a customer is
+   handed one. */
+.slip-preview-wrap {
+  position: sticky;
+  top: 0;
+}
+
+.slip-preview {
+  padding: 16px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  /* Paper is white in both themes — that is what the customer receives. */
+  background: #fff;
+  color: #111;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.slip-preview-logo {
+  display: block;
+  max-width: 58%;
+  max-height: 72px;
+  margin: 0 auto 8px;
+  object-fit: contain;
+}
+
+.slip-preview-rule {
+  white-space: nowrap;
+  overflow: hidden;
+  color: #444;
+}
+
+.slip-preview-name {
+  font-weight: 700;
+  font-size: 11.5px;
+  margin: 3px 0;
+}
+
+.slip-preview-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.slip-preview-body {
+  text-align: left;
+  margin-top: 6px;
+}
+
+.slip-preview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.slip-preview-total {
+  font-weight: 700;
+}
+
+.slip-preview-note {
+  margin-top: 8px;
+}
+
+/* ---- Staff manager ---- */
+
+.staff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.staff-row-initial {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--grad-accent);
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+.staff-row-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1080px) {
+  .slip-settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------------------------------------------------------------- *
    Image picker
    ---------------------------------------------------------------- */
 
@@ -2309,6 +2480,17 @@ table.data tbody tr:last-child td {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* Logos are shown whole, on a light ground — a mark designed for white paper
+   can vanish entirely against the dark theme. */
+.image-picker-preview.contain {
+  background: #fff;
+}
+
+.image-picker-preview.contain img {
+  object-fit: contain;
+  padding: 10px;
 }
 
 .image-picker-empty {

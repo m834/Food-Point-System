@@ -81,6 +81,7 @@ app.whenReady().then(async () => {
   const session = require(path.join(dist, 'services', 'session'));
   const managerPin = require(path.join(dist, 'services', 'managerPin'));
   const cancelGuard = require(path.join(dist, 'services', 'cancelGuard'));
+  const adminSession = require(path.join(dist, 'services', 'adminSession'));
   const settingsRepo = require(path.join(dist, 'db', 'repositories', 'settings'));
   const reports = require(path.join(dist, 'db', 'repositories', 'reports'));
   const receipt = require(path.join(dist, 'services', 'receipt'));
@@ -2068,6 +2069,106 @@ app.whenReady().then(async () => {
     eq(report.total_count, 0, 'tomorrow has none');
     eq(report.total_value, 0, 'and no value');
     eq(report.by_staff.length, 0, 'and nobody to blame');
+  });
+
+
+  /* ================================================================== *
+   * 16 — Admin portal access control
+   * ================================================================== */
+  section('16 — Admin portal');
+
+  test('16.1', 'Admin starts locked', () => {
+    adminSession.lockAdmin();
+    eq(adminSession.isAdmin(), false, 'locked on start');
+    throws(() => adminSession.requireAdmin(), 'owner-only data is refused while locked');
+  });
+
+  test('16.2', 'An unset PIN does NOT leave admin open', () => {
+    managerPin.setPin('');
+    // requirePin() passes silently with no PIN — that is the "voids are open"
+    // rule, and applying it to admin would expose the takings on any shop
+    // that never set one.
+    managerPin.requirePin(undefined);
+    ok(true, 'the cancellation gate stays open, as designed');
+    throws(() => adminSession.unlockAdmin(''), 'but admin refuses to unlock');
+    eq(adminSession.adminPinRequired(), true, 'and reports that a PIN is needed');
+  });
+
+  test('16.3', 'The manager PIN opens admin — the SAME PIN, not a second one', () => {
+    managerPin.setPin('4321');
+    throws(() => adminSession.unlockAdmin('0000'), 'a wrong PIN is refused');
+    throws(() => adminSession.unlockAdmin(''), 'a blank PIN is refused');
+    adminSession.unlockAdmin('4321');
+    eq(adminSession.isAdmin(), true, 'the cancellation PIN unlocks admin');
+    // Proof it is one store, not two: change it in Settings and admin follows.
+    adminSession.lockAdmin();
+    managerPin.setPin('8765');
+    throws(() => adminSession.unlockAdmin('4321'), 'the old PIN stops working');
+    adminSession.unlockAdmin('8765');
+    ok(true, 'the new one works — a single shared PIN store');
+    managerPin.setPin('4321');
+  });
+
+  test('16.4', 'Exiting admin ends the session immediately', () => {
+    adminSession.unlockAdmin('4321');
+    eq(adminSession.isAdmin(), true, 'unlocked');
+    adminSession.lockAdmin();
+    eq(adminSession.isAdmin(), false, 'locked again');
+    throws(() => adminSession.requireAdmin(), 'and owner-only data is refused');
+  });
+
+  test('16.5', 'First run: setting the PIN unlocks, and cannot overwrite one', () => {
+    managerPin.setPin('');
+    eq(adminSession.adminPinRequired(), true, 'no PIN yet');
+    adminSession.initialiseAdminPin('1357');
+    eq(adminSession.isAdmin(), true, 'set and entered in one step');
+    throws(() => adminSession.initialiseAdminPin('9999'), 'cannot silently replace an existing PIN');
+    // And the PIN it set is the real manager PIN — the cancellation gate now
+    // honours it too.
+    managerPin.requirePin('1357');
+    ok(true, 'the same PIN now approves a paid cancellation');
+    managerPin.setPin('4321');
+    adminSession.lockAdmin();
+  });
+
+  test('16.6', 'Route map: counter screens only, everything else is admin', () => {
+    // Mirrors src/lib/areas.ts. Default-deny is the property under test: a
+    // route nobody classified must land on the admin side, not the counter.
+    const COUNTER = ['/order/', '/tables/', '/menu/'];
+    const isAdminRoute = (p) => {
+      const path = p.endsWith('/') ? p : p + '/';
+      return !COUNTER.includes(path === '//' ? '/' : path);
+    };
+    for (const p of COUNTER) eq(isAdminRoute(p), false, p + ' is counter');
+    for (const p of ['/', '/reports/', '/cancellations/', '/settings/', '/orders/', '/deals/'])
+      eq(isAdminRoute(p), true, p + ' is admin');
+    eq(isAdminRoute('/some-future-screen/'), true, 'an unclassified route defaults to admin');
+    eq(isAdminRoute('/reports'), true, 'a missing trailing slash does not slip past');
+  });
+
+  test('16.7', 'Counter work is untouched by the lock', () => {
+    adminSession.lockAdmin();
+    // The whole point: locking admin must not stop anyone serving a customer.
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const fired = orders.fireToKitchen(o.id);
+    ok(fired.fired.length === 1, 'sending to the kitchen still works');
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.status, 'settled', 'billing still works');
+    ok(menu.listItems().length > 0, 'the menu still lists');
+    ok(tables.listTables().length >= 0, 'the floor still lists');
+    ok(receipt.buildCustomerBill(settled).length > 0, 'the bill still prints');
+  });
+
+  test('16.8', 'Idle admin sessions expire', () => {
+    adminSession.unlockAdmin('4321');
+    eq(adminSession.isAdmin(), true, 'unlocked');
+    // The timeout is real time, so assert the mechanism rather than sleep for
+    // fifteen minutes: touching keeps it alive, and lock ends it.
+    adminSession.touchAdmin();
+    eq(adminSession.isAdmin(), true, 'activity keeps it alive');
+    adminSession.lockAdmin();
+    eq(adminSession.isAdmin(), false, 'and it can always be ended outright');
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

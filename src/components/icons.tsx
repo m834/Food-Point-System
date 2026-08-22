@@ -179,3 +179,23 @@ export function IconMoon({ size = 18 }: Props) {
     </svg>
   );
 }
+
+/** Admin — a shield. The way in to the owner's area. */
+export function IconShield({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <path d="M12 2.6 20 5.6v6c0 4.6-3.2 8.6-8 9.8-4.8-1.2-8-5.2-8-9.8v-6Z" />
+      <path d="m9.2 12 2 2 3.6-3.8" />
+    </svg>
+  );
+}
+
+/** Leaving admin — a closed padlock. */
+export function IconLock({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <rect x="4.4" y="10.4" width="15.2" height="10.4" rx="2" />
+      <path d="M8 10.4V7.6a4 4 0 0 1 8 0v2.8" />
+    </svg>
+  );
+}

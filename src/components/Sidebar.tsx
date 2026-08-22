@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useApp } from './AppContext';
 import { strings } from '@/lib/strings';
+import { ADMIN_HOME, COUNTER_HOME } from '@/lib/areas';
 import {
   IconCancel,
   IconDashboard,
@@ -12,28 +13,45 @@ import {
   IconOrder,
   IconReceipt,
   IconReports,
+  IconLock,
   IconMoon,
   IconSettings,
+  IconShield,
   IconSun,
   IconTables,
 } from './icons';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { tablesEnabled, staff, signOut, theme, toggleTheme } = useApp();
+  const { tablesEnabled, staff, signOut, theme, toggleTheme, isAdmin, exitAdmin } = useApp();
+  const router = useRouter();
 
-  const links = [
-    { href: '/', label: strings.nav.dashboard, icon: <IconDashboard /> },
+  /**
+   * Two navigations, never merged.
+   *
+   * The counter list contains no admin entry at all — not greyed, not hidden
+   * behind a check, simply absent. A disabled Reports link still tells a
+   * curious staff member that reports exist and are worth trying; an absent
+   * one tells them nothing.
+   *
+   * The only crossing point is the Admin button below, which leads to a PIN.
+   */
+  const counterLinks = [
     { href: '/order/', label: strings.nav.newOrder, icon: <IconOrder /> },
     { href: '/orders/', label: strings.nav.orders, icon: <IconReceipt /> },
-    // A pure takeaway counter never sees this.
     ...(tablesEnabled ? [{ href: '/tables/', label: strings.nav.tables, icon: <IconTables /> }] : []),
-    { href: '/menu/', label: strings.nav.menu, icon: <IconMenu /> },
-    { href: '/deals/', label: strings.nav.deals, icon: <IconDeal /> },
+  ];
+
+  const adminLinks = [
+    { href: '/', label: strings.nav.dashboard, icon: <IconDashboard /> },
     { href: '/reports/', label: strings.nav.reports, icon: <IconReports /> },
     { href: '/cancellations/', label: strings.nav.cancellations, icon: <IconCancel /> },
+    { href: '/menu/', label: strings.nav.menu, icon: <IconMenu /> },
+    { href: '/deals/', label: strings.nav.deals, icon: <IconDeal /> },
     { href: '/settings/', label: strings.nav.settings, icon: <IconSettings /> },
   ];
+
+  const links = isAdmin ? adminLinks : counterLinks;
 
   // Compare whole path segments. A plain startsWith would light up "New order"
   // whenever you were on /orders/, since /orders starts with /order.
@@ -55,6 +73,12 @@ export function Sidebar() {
         </div>
       </div>
 
+      {/* Which area this is. Without it, an owner glancing at the screen
+          cannot tell admin from counter at a distance. */}
+      <div className={`sidebar-area${isAdmin ? ' admin' : ''}`}>
+        {isAdmin ? strings.admin.adminArea : strings.admin.counterArea}
+      </div>
+
       {links.map((link) => (
         <Link
           key={link.href}
@@ -65,6 +89,26 @@ export function Sidebar() {
           {link.label}
         </Link>
       ))}
+
+      {/* The one way between the two areas. On the counter it leads to a PIN;
+          inside admin it ends the session and drops back to the till. */}
+      {isAdmin ? (
+        <button
+          className="sidebar-admin exit"
+          onClick={async () => {
+            await exitAdmin();
+            router.push(COUNTER_HOME);
+          }}
+        >
+          <IconLock size={16} />
+          <span>{strings.admin.exitAdmin}</span>
+        </button>
+      ) : (
+        <button className="sidebar-admin" onClick={() => router.push(ADMIN_HOME)}>
+          <IconShield size={16} />
+          <span>{strings.admin.adminButton}</span>
+        </button>
+      )}
 
       {/* The theme switch. Sits with the other persistent controls at the
           foot rather than in Settings: a counter changes this when the light

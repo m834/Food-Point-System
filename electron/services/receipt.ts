@@ -161,6 +161,15 @@ export function buildCustomerBill(order: Order): string {
   }
   out.push('');
   out.push(centre('Thank you — please come again'));
+
+  // The shop's own closing line: return policy, wifi password, whatever they
+  // want on every bill. Wrapped, because owners type more than fits.
+  const footer = settings[SETTING_KEYS.receiptFooter];
+  if (footer) {
+    out.push('');
+    out.push(...wrap(footer, WIDTH).map(centre));
+  }
+
   out.push('');
   // Last, under the thank-you, so it never competes with the total. Two lines
   // because the credit and the number together overrun a 42-column roll.

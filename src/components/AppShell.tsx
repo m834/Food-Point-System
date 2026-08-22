@@ -1,12 +1,15 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { useApp } from './AppContext';
 import { Sidebar } from './Sidebar';
 import { Activation } from './Activation';
 import { StaffSignIn } from './StaffSignIn';
+import { AdminGate } from './AdminGate';
 import { Spinner } from './ui';
 import { hasBridge } from '@/lib/api';
+import { isAdminRoute } from '@/lib/areas';
 
 /**
  * The frame every screen sits in — and the licence gate.
@@ -39,7 +42,8 @@ export function AppShell({
    */
   rich?: boolean;
 }) {
-  const { ready, license, staff, staffRequired, refreshStaff } = useApp();
+  const { ready, license, staff, staffRequired, refreshStaff, isAdmin } = useApp();
+  const pathname = usePathname();
 
   if (!ready) return <Spinner />;
 
@@ -65,6 +69,16 @@ export function AppShell({
    * cancellations are simply recorded without a name until it does.
    */
   if (staffRequired && !staff) return <StaffSignIn onSignedIn={refreshStaff} />;
+
+  /**
+   * The admin gate.
+   *
+   * Applied by ROUTE, not by which button was pressed, so typing the address
+   * of a report is stopped by exactly the same check as tapping Admin. The
+   * backend re-checks on every owner-only channel regardless — this is what
+   * makes the screen coherent, not what makes it safe.
+   */
+  if (isAdminRoute(pathname) && !isAdmin) return <AdminGate />;
 
   return (
     <div className="shell">

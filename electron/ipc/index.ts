@@ -1,3 +1,4 @@
+import { registerAdminHandlers } from './admin';
 import { registerBackupHandlers } from './backup';
 import { registerDealHandlers } from './deals';
 import { registerImageHandlers } from './images';
@@ -12,6 +13,7 @@ import { registerTableHandlers } from './tables';
 /** Every channel the renderer can reach, registered once at startup. */
 export function registerIpcHandlers(): void {
   registerLicenseHandlers();
+  registerAdminHandlers();
   registerSettingsHandlers();
   registerStaffHandlers();
   registerMenuHandlers();

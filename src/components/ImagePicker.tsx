@@ -63,7 +63,10 @@ export function ImagePicker({
 
   return (
     <div className="image-picker">
-      <div className="image-picker-preview">
+      {/* A logo must be shown whole. Food photos are cropped to fill the
+          tile because that is how they appear on the order grid; a logo
+          cropped is just a broken logo. */}
+      <div className={`image-picker-preview${kind === 'logo' ? ' contain' : ''}`}>
         {value && !failed ? (
           <img src={imageUrl(kind, value)} alt="" onError={() => setFailed(true)} />
         ) : (

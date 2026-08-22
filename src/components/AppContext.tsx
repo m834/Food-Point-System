@@ -42,6 +42,12 @@ interface AppState {
   /** 'dark' or 'light'. Applied to <html data-theme>. */
   theme: 'dark' | 'light';
   toggleTheme: () => Promise<void>;
+  /** True while the owner's admin session is live, per the MAIN process. */
+  isAdmin: boolean;
+  /** False when no manager PIN exists yet — admin offers to set one. */
+  adminPinSet: boolean;
+  refreshAdmin: () => Promise<void>;
+  exitAdmin: () => Promise<void>;
   /** True once the owner has added anyone — then signing in is required. */
   staffRequired: boolean;
   refreshStaff: () => Promise<void>;
@@ -65,6 +71,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<SettingsMap>({});
   const [staff, setStaff] = useState<StaffSession | null>(null);
   const [staffRequired, setStaffRequired] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPinSet, setAdminPinSet] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const theme: 'dark' | 'light' =
@@ -130,6 +138,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [theme]);
 
+  /**
+   * Ask the main process whether admin is unlocked.
+   *
+   * Never cached from a successful unlock: the session can expire on idle, and
+   * the only honest answer comes from the side that owns it.
+   */
+  const refreshAdmin = useCallback(async () => {
+    try {
+      const status = await api.admin.status();
+      setIsAdmin(status.unlocked);
+      setAdminPinSet(status.pinSet);
+    } catch {
+      setIsAdmin(false);
+    }
+  }, []);
+
+  const exitAdmin = useCallback(async () => {
+    try {
+      await api.admin.lock();
+    } finally {
+      setIsAdmin(false);
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     try {
       await api.staff.signOut();
@@ -158,9 +190,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refreshLicense();
       await refreshSettings();
       await refreshStaff();
+      await refreshAdmin();
       setReady(true);
     })();
-  }, [refreshLicense, refreshSettings, refreshStaff]);
+  }, [refreshLicense, refreshSettings, refreshStaff, refreshAdmin]);
 
   // Settings only become readable once the app is unlocked, so pick them up
   // the moment activation succeeds.
@@ -181,6 +214,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       staffRequired,
       theme,
       toggleTheme,
+      isAdmin,
+      adminPinSet,
+      refreshAdmin,
+      exitAdmin,
       refreshStaff,
       signOut,
       refreshLicense,
@@ -195,6 +232,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       staffRequired,
       theme,
       toggleTheme,
+      isAdmin,
+      adminPinSet,
+      refreshAdmin,
+      exitAdmin,
       refreshStaff,
       signOut,
       refreshLicense,

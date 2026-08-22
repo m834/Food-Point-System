@@ -56,7 +56,7 @@ export function hasBridge(): boolean {
 }
 
 /** Which upload folder a photo belongs in. */
-export type ImageKind = 'category' | 'menu-item' | 'deal';
+export type ImageKind = 'category' | 'menu-item' | 'deal' | 'logo';
 
 /** Build the app:// URL for a stored photo basename. */
 export function imageUrl(kind: ImageKind, file: string): string {
@@ -71,6 +71,13 @@ export interface PrintOutcome {
 export const api = {
   app: {
     version: () => call<string>('app', 'version'),
+  },
+
+  admin: {
+    status: () => call<{ unlocked: boolean; pinSet: boolean }>('admin', 'status'),
+    unlock: (pin: string) => call<{ unlocked: true }>('admin', 'unlock', pin),
+    initialise: (pin: string) => call<{ unlocked: true }>('admin', 'initialise', pin),
+    lock: () => call<null>('admin', 'lock'),
   },
 
   menu: {

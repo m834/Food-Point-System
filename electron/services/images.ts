@@ -11,6 +11,7 @@ import { dataDir } from '../db/connection';
  *   <userData>/upload/category/cat_pizza.jpg
  *   <userData>/upload/menu-item/pizza_crown_crust.jpg
  *   <userData>/upload/deal/deal_01.jpg
+ *   <userData>/upload/logo/shop-logo.png      <- the shop's own mark
  *
  * Two reasons the folders are split rather than one flat pile. A shop dropping
  * in fifty photos from their designer can keep the category shots separate
@@ -29,7 +30,7 @@ import { dataDir } from '../db/connection';
 const ALLOWED = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 
 /** The three kinds of thing that can carry a photo. */
-export const IMAGE_KINDS = ['category', 'menu-item', 'deal'] as const;
+export const IMAGE_KINDS = ['category', 'menu-item', 'deal', 'logo'] as const;
 export type ImageKind = (typeof IMAGE_KINDS)[number];
 
 export function isImageKind(value: unknown): value is ImageKind {

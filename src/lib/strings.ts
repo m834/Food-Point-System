@@ -23,6 +23,7 @@ export const strings = {
     deals: 'Deals',
     reports: 'Reports',
     cancellations: 'Cancellations',
+    sales: 'Sales',
     settings: 'Settings',
   },
 
@@ -83,6 +84,25 @@ export const strings = {
       'Add the people who work the counter. Until you do, cancellations are recorded without a name.',
     signInPrompt: 'Sign in to start taking orders.',
     wrongPin: "That PIN doesn't match.",
+  },
+
+  admin: {
+    title: 'Admin',
+    hint: 'Enter the manager PIN to open the owner’s area.',
+    unlock: 'Open admin',
+    wrongPin: 'That PIN doesn’t match.',
+    backToCounter: 'Back to counter',
+    exitAdmin: 'Exit admin',
+    adminButton: 'Admin',
+    counterArea: 'Counter',
+    adminArea: 'Admin',
+    setPinTitle: 'Set a manager PIN',
+    setPinHint:
+      'The admin area holds your takings and settings, so it needs a PIN. This is the same PIN that approves cancelling a paid order.',
+    setPinAction: 'Set PIN and continue',
+    confirmPin: 'Repeat PIN',
+    pinMismatch: 'Those two PINs are not the same.',
+    locked: 'Admin locked.',
   },
 
   theme: {
@@ -319,6 +339,16 @@ export const strings = {
     enableTablesHint: 'Turn this off for a pure takeaway counter — the Tables screen disappears.',
     security: 'Voids',
     managerPin: 'Manager PIN',
+    slip: 'Receipt slip',
+    slipHint: 'Printed at the top and bottom of every customer bill.',
+    shopLogo: 'Shop logo',
+    shopLogoHint: 'Stored on this computer. Never loaded from the internet.',
+    receiptFooter: 'Footer line',
+    receiptFooterHint: 'Printed under the thank-you. Leave blank for none.',
+    receiptFooterPlaceholder: 'e.g. No refund without receipt',
+    slipPreview: 'Slip preview',
+    slipPreviewNote:
+      'Preview only. The logo is not yet printed on the thermal slip — that is being added separately so live printing cannot break. The printed slip currently shows the shop name and details as text.',
     managerPinHint: 'Ask for this PIN before voiding. Leave it blank to allow voids without one.',
     setPin: 'Set PIN',
     changePin: 'Change PIN',

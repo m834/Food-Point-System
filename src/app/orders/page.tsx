@@ -19,7 +19,7 @@ import { ORDER_TYPE_LABELS, type Order } from '../../../shared/types';
  * screen at all.
  */
 export default function OrdersPage() {
-  const { toast } = useApp();
+  const { toast, isAdmin } = useApp();
 
   const [from, setFrom] = useState(todayIso());
   const [to, setTo] = useState(todayIso());
@@ -148,12 +148,17 @@ export default function OrdersPage() {
                       <span className="muted small">{strings.orders.total} </span>
                       <strong className="num">{money(totals.sales)}</strong>
                     </span>
-                    <span>
-                      <span className="muted small">{strings.orders.profit} </span>
-                      <strong className="num" style={{ color: 'var(--success)' }}>
-                        {money(totals.profit)}
-                      </strong>
-                    </span>
+                    {/* Profit is the owner's number. The counter reaches this
+                        screen to look an order up and reprint a bill, and must
+                        not see margin. */}
+                    {isAdmin ? (
+                      <span>
+                        <span className="muted small">{strings.orders.profit} </span>
+                        <strong className="num" style={{ color: 'var(--success)' }}>
+                          {money(totals.profit)}
+                        </strong>
+                      </span>
+                    ) : null}
                   </span>
                 </div>
               </Card>
@@ -170,7 +175,7 @@ export default function OrdersPage() {
                       <th className="right">{strings.orders.items}</th>
                       <th>{strings.orders.payment}</th>
                       <th className="right">{strings.orders.total}</th>
-                      <th className="right">{strings.orders.profit}</th>
+                      {isAdmin ? <th className="right">{strings.orders.profit}</th> : null}
                       <th className="right">Bill</th>
                     </tr>
                   </thead>
@@ -206,9 +211,11 @@ export default function OrdersPage() {
                             )}
                           </td>
                           <td className="right num">{voided ? '—' : money(order.total)}</td>
-                          <td className="right num" style={{ color: 'var(--success)' }}>
-                            {voided ? '—' : money(order.profit)}
-                          </td>
+                          {isAdmin ? (
+                            <td className="right num" style={{ color: 'var(--success)' }}>
+                              {voided ? '—' : money(order.profit)}
+                            </td>
+                          ) : null}
                           <td className="right">
                             <div className="row" style={{ justifyContent: 'flex-end' }}>
                               <button className="btn sm" onClick={() => setViewing(order)}>

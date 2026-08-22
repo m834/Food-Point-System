@@ -4,8 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppShell } from '@/components/AppShell';
 import { useApp } from '@/components/AppContext';
 import { Card, Field, Modal, Notice } from '@/components/ui';
+import { ImagePicker } from '@/components/ImagePicker';
+import { SlipPreview } from '@/components/SlipPreview';
+import { StaffManager } from '@/components/StaffManager';
 import { IconPrint } from '@/components/icons';
-import { api } from '@/lib/api';
+import { api, imageUrl } from '@/lib/api';
 import { strings } from '@/lib/strings';
 import { bytes, dateTime } from '@/lib/format';
 import { SETTING_KEYS, type BackupRecord, type SettingsMap } from '../../../shared/types';
@@ -145,6 +148,53 @@ export default function SettingsPage() {
               </Field>
             </div>
           </div>
+        </Card>
+
+        {/* --- the shop's mark and closing line, both printed on the bill --- */}
+        <Card>
+          <h2 style={{ marginBottom: 4 }}>{strings.settings.slip}</h2>
+          <p className="tiny muted" style={{ marginBottom: 14 }}>
+            {strings.settings.slipHint}
+          </p>
+
+          <div className="slip-settings">
+            <div>
+              <Field label={strings.settings.shopLogo} hint={strings.settings.shopLogoHint}>
+                <ImagePicker
+                  kind="logo"
+                  value={values[SETTING_KEYS.shopLogo] || null}
+                  onChange={(file) => set(SETTING_KEYS.shopLogo, file ?? '')}
+                />
+              </Field>
+
+              <Field label={strings.settings.receiptFooter} hint={strings.settings.receiptFooterHint}>
+                <input
+                  className="input"
+                  value={values[SETTING_KEYS.receiptFooter] ?? ''}
+                  onChange={(event) => set(SETTING_KEYS.receiptFooter, event.target.value)}
+                  placeholder={strings.settings.receiptFooterPlaceholder}
+                />
+              </Field>
+            </div>
+
+            {/* What the slip will look like, updating as the fields change. */}
+            <SlipPreview
+              logoFile={values[SETTING_KEYS.shopLogo] || null}
+              name={values[SETTING_KEYS.businessName] ?? ''}
+              address={values[SETTING_KEYS.businessAddress] ?? ''}
+              phone={values[SETTING_KEYS.businessPhone] ?? ''}
+              footer={values[SETTING_KEYS.receiptFooter] ?? ''}
+            />
+          </div>
+        </Card>
+
+        {/* --- who works the counter --- */}
+        <Card>
+          <h2 style={{ marginBottom: 4 }}>{strings.staff.title}</h2>
+          <p className="tiny muted" style={{ marginBottom: 14 }}>
+            {strings.staff.subtitle}
+          </p>
+          <StaffManager onChanged={load} />
         </Card>
 
         {/* --- printing: two printers, degrading to one --- */}

@@ -459,6 +459,13 @@ export const SETTING_KEYS = {
   managerPin: 'manager_pin',
   /** 'dark' or 'light'. The counter's choice, kept across restarts. */
   theme: 'theme',
+  /**
+   * Filename of the shop logo inside <userData>/upload/logo/.
+   * A filename, never a URL — the app must render it with no network.
+   */
+  shopLogo: 'shop_logo',
+  /** Optional line printed under the thank-you, e.g. a return policy. */
+  receiptFooter: 'receipt_footer',
 } as const;
 
 export const DEFAULT_SETTINGS: SettingsMap = {
@@ -473,6 +480,8 @@ export const DEFAULT_SETTINGS: SettingsMap = {
   [SETTING_KEYS.currencySymbol]: 'Rs.',
   [SETTING_KEYS.managerPin]: '',
   [SETTING_KEYS.theme]: 'dark',
+  [SETTING_KEYS.shopLogo]: '',
+  [SETTING_KEYS.receiptFooter]: '',
 };
 
 /** Labels live here so the whole app names an order type the same way. */

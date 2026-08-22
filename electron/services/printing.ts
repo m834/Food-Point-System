@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { getAllSettings, kitchenPrintEnabled } from '../db/repositories/settings';
 import { buildCustomerBill, buildKitchenTicket } from './receipt';
+import { logoRasterBytes } from './receiptLogo';
 import { SETTING_KEYS, type Order, type OrderItem } from '../../shared/types';
 
 /**
@@ -163,6 +164,17 @@ function buildEscPos(text: string): Buffer {
   parts.push(Buffer.from([ESC, 0x21, 0x08]));
 
   parts.push(Buffer.from('\n'.repeat(TOP_FEED_LINES), 'ascii'));
+
+  /**
+   * The shop logo, above everything else on the slip.
+   *
+   * Returns null today, so these three lines add no bytes and the printed
+   * output is byte-identical to before the logo feature existed. When raster
+   * printing is built, it plugs in at receiptLogo.ts and appears here with no
+   * other change to the print path. See that file before touching this.
+   */
+  const logo = logoRasterBytes();
+  if (logo) parts.push(logo);
 
   // CRLF is what ESC/POS expects; a bare LF is ignored by some controllers,
   // which is one way a whole receipt ends up printed as a single line.
