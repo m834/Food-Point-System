@@ -2375,10 +2375,17 @@ table.data tbody tr:last-child td {
 
 .slip-preview-logo {
   display: block;
-  max-width: 58%;
-  max-height: 72px;
+  /* Square box + 50% radius = a round mark, which is how a shop logo reads
+     at the top of a slip. `cover` fills the circle rather than leaving the
+     artwork floating in it; most logos are square or near-square, so the
+     crop is negligible. If a client's logo is a wide wordmark, change this
+     to `contain` and drop the radius — a circle would cut it in half. */
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
   margin: 0 auto 8px;
-  object-fit: contain;
+  object-fit: cover;
+  background: #fff;
 }
 
 .slip-preview-rule {
@@ -2483,14 +2490,19 @@ table.data tbody tr:last-child td {
 }
 
 /* Logos are shown whole, on a light ground — a mark designed for white paper
-   can vanish entirely against the dark theme. */
+   can vanish entirely against the dark theme. Rounded to match how it is
+   framed on the slip, so the preview is not promising a different shape. */
 .image-picker-preview.contain {
-  background: #fff;
+  background: var(--surface-sunken);
 }
 
 .image-picker-preview.contain img {
-  object-fit: contain;
-  padding: 10px;
+  width: 132px;
+  height: 132px;
+  margin: 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #fff;
 }
 
 .image-picker-empty {
