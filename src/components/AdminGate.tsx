@@ -30,6 +30,34 @@ export function AdminGate() {
   const [busy, setBusy] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [licenceKey, setLicenceKey] = useState('');
+  const [machineId, setMachineId] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  /**
+   * The Machine ID, fetched when recovery is opened.
+   *
+   * An owner who has forgotten the PIN usually does not have the licence key
+   * to hand either — so the screen that asks for the key has to also give them
+   * what the office needs in order to issue one. Without it they would be told
+   * to fetch something they have no way to find.
+   */
+  useEffect(() => {
+    if (!recovering || machineId) return;
+    api.license
+      .machineId()
+      .then(setMachineId)
+      .catch(() => undefined);
+  }, [recovering, machineId]);
+
+  const copyMachineId = async () => {
+    try {
+      await api.system.copyToClipboard(machineId);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* Clipboard refusal is not worth an error banner. */
+    }
+  };
 
   /**
    * Re-read the PIN state whenever this gate appears.
@@ -121,13 +149,37 @@ export function AdminGate() {
               void recover();
             }}
           >
+            {/* What the office needs in order to issue a key for THIS
+                computer. Shown first, because it is the step that comes
+                first in real life: read it out, then wait for the key. */}
+            <div className="recover-machine">
+              <div className="tiny muted" style={{ marginBottom: 6 }}>
+                {strings.admin.machineIdLabel}
+              </div>
+              <div className="row" style={{ alignItems: 'stretch' }}>
+                <div className="machine-id" style={{ flex: 1 }}>
+                  {machineId || '…'}
+                </div>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={copyMachineId}
+                  disabled={!machineId}
+                >
+                  {copied ? strings.activation.copied : strings.activation.copy}
+                </button>
+              </div>
+            </div>
+
+            <div className="tiny muted" style={{ marginTop: 14, marginBottom: 4 }}>
+              {strings.admin.licenceKeyLabel}
+            </div>
             <textarea
               className="input"
               rows={3}
               value={licenceKey}
               onChange={(event) => setLicenceKey(event.target.value)}
               placeholder="CH1..."
-              style={{ marginTop: 16 }}
               autoFocus
             />
 

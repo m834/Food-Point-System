@@ -2439,6 +2439,16 @@ table.data tbody tr:last-child td {
   }
 }
 
+/* The Machine ID block on the forgotten-PIN screen. */
+.recover-machine {
+  margin-top: 18px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  text-align: left;
+}
+
 /* A matched customer on the order screen. Quiet: it is a suggestion, not a
    result the counter has to acknowledge. */
 .customer-hit {
