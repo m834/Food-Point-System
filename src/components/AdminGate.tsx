@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Notice } from './ui';
 import { useApp } from './AppContext';
@@ -28,6 +28,20 @@ export function AdminGate() {
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [licenceKey, setLicenceKey] = useState('');
+
+  /**
+   * Re-read the PIN state whenever this gate appears.
+   *
+   * The context loads it once at startup, but a RESTORE swaps the database
+   * underneath a running app — so a shop that restored a backup could be shown
+   * "enter your PIN" for a PIN that no longer exists, or "set a PIN" when the
+   * restored file has one. Asking again here is what keeps the gate honest.
+   */
+  useEffect(() => {
+    void refreshAdmin();
+  }, [refreshAdmin]);
 
   // First run: no PIN exists. Admin cannot be left open, and Settings — where
   // the PIN lives — is itself inside admin, so the only way out of that circle
@@ -58,16 +72,89 @@ export function AdminGate() {
     }
   };
 
+  /**
+   * Forgotten PIN. The licence key is the authority: only the founder's
+   * office can issue one, and it is locked to this machine. Clearing the PIN
+   * does not open admin — the gate immediately asks for a new one instead.
+   */
+  const recover = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.admin.recover(licenceKey);
+      setRecovering(false);
+      setLicenceKey('');
+      setPin('');
+      setConfirmPin('');
+      await refreshAdmin();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That licence key was not accepted.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="activation">
       <div className="activation-card">
         <img className="activation-logo" src="/logo.png" alt="" width={72} height={72} />
 
-        <h1>{firstRun ? strings.admin.setPinTitle : strings.admin.title}</h1>
+        <h1>
+          {recovering
+            ? strings.admin.recoverTitle
+            : firstRun
+              ? strings.admin.setPinTitle
+              : strings.admin.title}
+        </h1>
         <p className="muted small" style={{ marginTop: 6 }}>
-          {firstRun ? strings.admin.setPinHint : strings.admin.hint}
+          {recovering
+            ? strings.admin.recoverHint
+            : firstRun
+              ? strings.admin.setPinHint
+              : strings.admin.hint}
         </p>
 
+        {recovering ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void recover();
+            }}
+          >
+            <textarea
+              className="input"
+              rows={3}
+              value={licenceKey}
+              onChange={(event) => setLicenceKey(event.target.value)}
+              placeholder="CH1..."
+              style={{ marginTop: 16 }}
+              autoFocus
+            />
+
+            {error ? <Notice>{error}</Notice> : null}
+
+            <div className="row" style={{ marginTop: 16, gap: 8 }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setRecovering(false);
+                  setError('');
+                }}
+                disabled={busy}
+              >
+                {strings.common.cancel}
+              </button>
+              <button
+                type="submit"
+                className="btn primary block"
+                disabled={busy || !licenceKey.trim()}
+              >
+                {strings.admin.recoverAction}
+              </button>
+            </div>
+          </form>
+        ) : (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -113,7 +200,25 @@ export function AdminGate() {
               {firstRun ? strings.admin.setPinAction : strings.admin.unlock}
             </button>
           </div>
+
+          {/* The way out of a forgotten PIN. Only offered when one is set —
+              there is nothing to recover from otherwise. */}
+          {!firstRun ? (
+            <button
+              type="button"
+              className="btn ghost sm block"
+              style={{ marginTop: 12 }}
+              onClick={() => {
+                setRecovering(true);
+                setError('');
+              }}
+              disabled={busy}
+            >
+              {strings.admin.forgotPin}
+            </button>
+          ) : null}
         </form>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import {
   adminStatus,
   initialiseAdminPin,
   lockAdmin,
+  recoverWithLicenceKey,
   unlockAdmin,
 } from '../services/adminSession';
 
@@ -24,6 +25,14 @@ export function registerAdminHandlers(): void {
   /** First run only: no PIN exists yet, so set one and go straight in. */
   handle('admin:initialise', (_e, pin) =>
     initialiseAdminPin(asString(pin, 'PIN', { max: 8 })),
+  );
+
+  /**
+   * Forgotten PIN. Verifies the shop's licence key and clears the PIN so a
+   * new one must be set — it does not unlock anything by itself.
+   */
+  handle('admin:recover', (_e, key) =>
+    recoverWithLicenceKey(asString(key, 'Licence key', { max: 500 })),
   );
 
   handle('admin:lock', () => {

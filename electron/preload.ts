@@ -17,6 +17,7 @@ const api = {
     status: () => ipcRenderer.invoke('admin:status'),
     unlock: (pin: string) => ipcRenderer.invoke('admin:unlock', pin),
     initialise: (pin: string) => ipcRenderer.invoke('admin:initialise', pin),
+    recover: (key: string) => ipcRenderer.invoke('admin:recover', key),
     lock: () => ipcRenderer.invoke('admin:lock'),
   },
 

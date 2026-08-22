@@ -1,4 +1,5 @@
 import { isPinSet, requirePin, setPin } from './managerPin';
+import { verifyKey } from './license';
 
 /**
  * The owner's admin session.
@@ -67,6 +68,41 @@ export function initialiseAdminPin(pin: string): { unlocked: true } {
   unlocked = true;
   unlockedAt = Date.now();
   return { unlocked: true };
+}
+
+/**
+ * Recover from a forgotten manager PIN, using the licence key.
+ *
+ * The gap this closes is real and was found the hard way: a PIN is a salted
+ * hash, so nobody — not the owner, not the developer — can read it back. An
+ * owner who forgets it, or who restores a backup taken before they last
+ * changed it, is locked out of their own takings and settings with no way
+ * back that does not involve a developer and a terminal.
+ *
+ * The licence key is the right authority to check against:
+ *
+ *  - Only the founder's office can mint one, so a staff member cannot invent
+ *    it to open the till.
+ *  - It is node-locked, so a key from another shop will not verify here.
+ *  - The shop already has it, and already knows to contact the office if not.
+ *  - It verifies offline, which everything in this app must.
+ *
+ * On success the PIN is CLEARED rather than set to anything. That deliberately
+ * does not open the door: `unlockAdmin` refuses while no PIN exists, so the
+ * very next step forces a fresh one to be chosen. A recovery that left admin
+ * unlocked would be a worse hole than the one it fixes.
+ */
+export function recoverWithLicenceKey(key: unknown): { cleared: true } {
+  const text = typeof key === 'string' ? key.trim() : '';
+  if (!text) throw new Error('Enter the licence key for this computer.');
+
+  // Throws with a readable message when the key is wrong, expired, for
+  // another product, or issued for a different machine.
+  verifyKey(text);
+
+  setPin('');
+  lockAdmin();
+  return { cleared: true };
 }
 
 export function lockAdmin(): void {

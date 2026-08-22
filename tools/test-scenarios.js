@@ -2654,6 +2654,57 @@ app.whenReady().then(async () => {
     ok(customersRepo.findByPhone('0311 222 3333'), 'the counter can still look one up');
   });
 
+
+  /* ================================================================== *
+   * 20 — Forgotten PIN recovery
+   * ================================================================== */
+  section('20 — PIN recovery');
+
+  test('20.1', 'Recovery needs a REAL licence key, not any string', () => {
+    managerPin.setPin('4321');
+    throws(() => adminSession.recoverWithLicenceKey(''), 'blank is refused');
+    throws(() => adminSession.recoverWithLicenceKey('CH1.rubbish'), 'nonsense is refused');
+    throws(() => adminSession.recoverWithLicenceKey('not-even-a-key'), 'garbage is refused');
+    eq(managerPin.isPinSet(), true, 'and the PIN is untouched by a failed attempt');
+  });
+
+  test('20.2', 'A valid licence key clears the PIN', () => {
+    const { getMachineId } = require(path.join(dist, 'services', 'machineId'));
+    const { execFileSync } = require('node:child_process');
+    const out = execFileSync('node', [path.join(ROOT, 'tools/keygen/keygen.js'), '--machine', getMachineId()], { encoding: 'utf8' });
+    const key = (out.match(/CH1\.[A-Za-z0-9_\-.]+/) || [])[0];
+    ok(key, 'the office produced a key');
+
+    managerPin.setPin('4321');
+    adminSession.recoverWithLicenceKey(key);
+    eq(managerPin.isPinSet(), false, 'the forgotten PIN is cleared');
+  });
+
+  test('20.3', 'Recovery does NOT open admin — it forces a new PIN', () => {
+    // The property that stops this being a backdoor: clearing the PIN leaves
+    // admin MORE locked, not less, until a fresh one is chosen.
+    eq(adminSession.isAdmin(), false, 'not unlocked by recovering');
+    throws(() => adminSession.unlockAdmin(''), 'and cannot be opened without a PIN');
+    throws(() => adminSession.requireAdmin(), 'owner-only data still refused');
+    eq(adminSession.adminPinRequired(), true, 'the gate demands a new PIN');
+
+    adminSession.initialiseAdminPin('2468');
+    eq(adminSession.isAdmin(), true, 'setting one lets the owner back in');
+    managerPin.requirePin('2468');
+    ok(true, 'and it is the real manager PIN, honoured by the void gate too');
+    managerPin.setPin('4321');
+    adminSession.lockAdmin();
+  });
+
+  test('20.4', "A key for another machine cannot open this one", () => {
+    const { execFileSync } = require('node:child_process');
+    const out = execFileSync('node', [path.join(ROOT, 'tools/keygen/keygen.js'), '--machine', 'SOME-OTHER-MACHINE-ID'], { encoding: 'utf8' });
+    const foreign = (out.match(/CH1\.[A-Za-z0-9_\-.]+/) || [])[0];
+    managerPin.setPin('4321');
+    throws(() => adminSession.recoverWithLicenceKey(foreign), 'a node-locked key from elsewhere is refused');
+    eq(managerPin.isPinSet(), true, 'the PIN survives the attempt');
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   const pad = (s, n) => String(s).padEnd(n);

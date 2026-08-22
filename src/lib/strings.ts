@@ -104,6 +104,11 @@ export const strings = {
     confirmPin: 'Repeat PIN',
     pinMismatch: 'Those two PINs are not the same.',
     locked: 'Admin locked.',
+    forgotPin: 'Forgotten the PIN?',
+    recoverTitle: 'Reset the manager PIN',
+    recoverHint:
+      'Enter this computer’s licence key — the one from the Code Hustlers office. It clears the PIN so you can set a new one. Nothing else is changed.',
+    recoverAction: 'Verify key and reset PIN',
   },
 
   theme: {

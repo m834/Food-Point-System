@@ -79,6 +79,8 @@ export const api = {
     status: () => call<{ unlocked: boolean; pinSet: boolean }>('admin', 'status'),
     unlock: (pin: string) => call<{ unlocked: true }>('admin', 'unlock', pin),
     initialise: (pin: string) => call<{ unlocked: true }>('admin', 'initialise', pin),
+    /** Forgotten PIN: verify the licence key and clear the PIN. */
+    recover: (key: string) => call<{ cleared: true }>('admin', 'recover', key),
     lock: () => call<null>('admin', 'lock'),
   },
 
