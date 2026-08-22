@@ -96,6 +96,7 @@ export function range(from: string, to: string): RangeTotals {
       `SELECT COALESCE(SUM(total), 0)           AS sales_total,
               COALESCE(SUM(profit), 0)          AS profit_total,
               COALESCE(SUM(delivery_charge), 0) AS delivery_total,
+              COALESCE(SUM(extras_total), 0)    AS extras_total,
               COUNT(*)                          AS order_count
          FROM orders
         WHERE status = 'settled' AND date(settled_at) BETWEEN ? AND ?`,
@@ -104,6 +105,7 @@ export function range(from: string, to: string): RangeTotals {
     sales_total: number;
     profit_total: number;
     delivery_total: number;
+    extras_total: number;
     order_count: number;
   };
 
@@ -128,6 +130,8 @@ export function range(from: string, to: string): RangeTotals {
     // Money taken for delivery, kept separate from what the kitchen sold —
     // it carries no food cost, so an owner reading margin needs it apart.
     delivery_total: money(totals.delivery_total),
+    // Packaging income, kept apart from food for the same reason.
+    extras_total: money(totals.extras_total),
     order_count: totals.order_count,
     days,
   };

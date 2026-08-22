@@ -110,6 +110,41 @@ export interface MenuItemVariant {
   sort_order: number;
 }
 
+/* ------------------------------------------------------------------ *
+ * Extras — packaging and disposables, charged per order
+ * ------------------------------------------------------------------ */
+
+/**
+ * A chargeable extra the shop keeps on a list: disposable plates, glasses,
+ * a carry bag.
+ *
+ * Deliberately NOT a menu item. A menu item is food the kitchen makes and it
+ * counts towards best-sellers and food margin; packaging is neither. Keeping
+ * them apart is what lets an owner see "we sold Rs 40,000 of food and Rs 900
+ * of plates" rather than one blended number.
+ */
+export interface ExtraCharge {
+  id: number;
+  name: string;
+  price: number;
+  /** What it costs the shop. Zero is fine — plates are often near-free. */
+  cost_price: number;
+  is_active: number;
+  sort_order: number;
+}
+
+/** One extra as it sits on an order, with its price snapshotted. */
+export interface OrderExtra {
+  id: number;
+  order_id: number;
+  extra_id: number | null;
+  name: string;
+  price: number;
+  cost_price: number;
+  qty: number;
+  line_total: number;
+}
+
 export type SelectionType = 'single' | 'multi';
 
 export interface ModifierGroup {
@@ -154,6 +189,8 @@ export interface Order {
   service_charge: number;
   /** Charged to deliver. Its own field, never folded into item prices. */
   delivery_charge: number;
+  /** Packaging and disposables — the sum of `extras`, kept out of subtotal. */
+  extras_total: number;
   /** Where the rider is going. Required for a delivery order. */
   delivery_address: string | null;
   total: number;
@@ -170,6 +207,8 @@ export interface Order {
   /** Whether the money had already been taken when this was cancelled. */
   voided_was_paid: number;
   items: OrderItem[];
+  /** Packaging charged on this order. Empty on most orders. */
+  extras: OrderExtra[];
 }
 
 export interface OrderItem {
@@ -394,6 +433,8 @@ export interface RangeTotals {
   profit_total: number;
   /** Delivery fees taken in the period — money with no food cost behind it. */
   delivery_total: number;
+  /** Packaging and disposables charged in the period. */
+  extras_total: number;
   order_count: number;
   days: Array<{ date: string; sales: number; profit: number; orders: number }>;
 }

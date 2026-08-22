@@ -7,6 +7,7 @@ import { Card, Field, Modal, Notice } from '@/components/ui';
 import { ImagePicker } from '@/components/ImagePicker';
 import { SlipPreview } from '@/components/SlipPreview';
 import { StaffManager } from '@/components/StaffManager';
+import { ExtrasManager } from '@/components/ExtrasManager';
 import { IconPrint } from '@/components/icons';
 import { api, imageUrl } from '@/lib/api';
 import { strings } from '@/lib/strings';
@@ -186,6 +187,15 @@ export default function SettingsPage() {
               footer={values[SETTING_KEYS.receiptFooter] ?? ''}
             />
           </div>
+        </Card>
+
+        {/* --- packaging the counter can add to any order --- */}
+        <Card>
+          <h2 style={{ marginBottom: 4 }}>{strings.extras.title}</h2>
+          <p className="tiny muted" style={{ marginBottom: 14 }}>
+            {strings.extras.subtitle}
+          </p>
+          <ExtrasManager />
         </Card>
 
         {/* --- who works the counter --- */}

@@ -2424,6 +2424,21 @@ table.data tbody tr:last-child td {
   margin-top: 8px;
 }
 
+/* The add-an-extra row in admin settings. */
+.extras-add {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 900px) {
+  .extras-add {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---- Staff manager ---- */
 
 .staff-list {

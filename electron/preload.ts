@@ -53,6 +53,13 @@ const api = {
     importFolder: (kind: string) => ipcRenderer.invoke('images:importFolder', kind),
   },
 
+  extras: {
+    list: (activeOnly?: boolean) => ipcRenderer.invoke('extras:list', activeOnly),
+    save: (extra: unknown) => ipcRenderer.invoke('extras:save', extra),
+    remove: (id: number) => ipcRenderer.invoke('extras:remove', id),
+    setActive: (id: number, active: boolean) => ipcRenderer.invoke('extras:setActive', id, active),
+  },
+
   tables: {
     list: () => ipcRenderer.invoke('tables:list'),
     save: (table: unknown) => ipcRenderer.invoke('tables:save', table),
@@ -68,6 +75,8 @@ const api = {
       ipcRenderer.invoke('orders:addItems', orderId, lines),
     addDeal: (orderId: number, dealId: number, quantity?: number) =>
       ipcRenderer.invoke('orders:addDeal', orderId, dealId, quantity),
+    setExtra: (orderId: number, extraId: number, qty: number) =>
+      ipcRenderer.invoke('orders:setExtra', orderId, extraId, qty),
     setDelivery: (orderId: number, input: unknown) =>
       ipcRenderer.invoke('orders:setDelivery', orderId, input),
     setItemQty: (orderItemId: number, qty: number) =>

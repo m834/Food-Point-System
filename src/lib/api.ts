@@ -5,6 +5,7 @@ import type {
   CancelReasonCode,
   DashboardSummary,
   Deal,
+  ExtraCharge,
   DiningTable,
   LicenseStatus,
   MenuCategory,
@@ -115,6 +116,13 @@ export const api = {
       call<{ copied: number; skipped: number }>('images', 'importFolder', kind),
   },
 
+  extras: {
+    list: (activeOnly?: boolean) => call<ExtraCharge[]>('extras', 'list', activeOnly),
+    save: (extra: Record<string, unknown>) => call<ExtraCharge>('extras', 'save', extra),
+    remove: (id: number) => call<null>('extras', 'remove', id),
+    setActive: (id: number, active: boolean) => call<ExtraCharge>('extras', 'setActive', id, active),
+  },
+
   tables: {
     list: () => call<DiningTable[]>('tables', 'list'),
     save: (table: Record<string, unknown>) => call<DiningTable>('tables', 'save', table),
@@ -131,6 +139,9 @@ export const api = {
       delivery_charge?: number;
     }) => call<Order>('orders', 'open', input),
     /** Correct the address or fee on an open delivery order. */
+    /** Add, change or remove an extra on an open order. */
+    setExtra: (orderId: number, extraId: number, qty: number) =>
+      call<Order>('orders', 'setExtra', orderId, extraId, qty),
     setDelivery: (
       orderId: number,
       input: {

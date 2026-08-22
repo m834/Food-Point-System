@@ -123,6 +123,11 @@ export default function ReportsPage() {
               note={totals.delivery_total ? strings.reports.deliveryNote : undefined}
               tone="b"
             />
+            <Stat
+              label={strings.reports.extrasTotal}
+              value={money(totals.extras_total)}
+              tone="c"
+            />
             <Stat label={strings.reports.profit} value={money(totals.profit_total)} profit />
             <Stat label={strings.reports.orders} value={String(totals.order_count)} />
             <Stat

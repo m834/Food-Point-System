@@ -22,6 +22,7 @@ import {
   type OpenOrderSummary,
   type Order,
   type OrderType,
+  type ExtraCharge,
   type SettingsMap,
 } from '../../../shared/types';
 
@@ -66,6 +67,8 @@ function OrderWorkspace() {
   const [startOpen, setStartOpen] = useState(false);
   const [modifierItem, setModifierItem] = useState<MenuItem | null>(null);
   const [chargeOpen, setChargeOpen] = useState(false);
+  const [extrasOpen, setExtrasOpen] = useState(false);
+  const [extras, setExtras] = useState<ExtraCharge[]>([]);
   const [voidTarget, setVoidTarget] = useState<{ kind: 'line' | 'order'; id: number; label: string } | null>(
     null,
   );
@@ -105,6 +108,13 @@ function OrderWorkspace() {
     setCategories(cats);
     setItems(list);
     setDeals(dealList);
+    // Packaging the counter can add to any order. Quiet failure: an older
+    // database with no extras set up must not break taking an order.
+    try {
+      setExtras(await api.extras.list(true));
+    } catch {
+      setExtras([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -688,6 +698,20 @@ function OrderWorkspace() {
                 </button>
               </div>
 
+              {/* Packaging, on every order type. Shows what is already on
+                  the order so the counter can see it without opening it. */}
+              {extras.length ? (
+                <button
+                  className="btn sm block"
+                  style={{ marginTop: 8 }}
+                  onClick={() => setExtrasOpen(true)}
+                  disabled={busy}
+                >
+                  {strings.extras.onOrder}
+                  {order.extras_total ? ` · ${money(order.extras_total)}` : ''}
+                </button>
+              ) : null}
+
               <button
                 className="btn ghost sm block"
                 style={{ marginTop: 8, color: 'var(--danger)' }}
@@ -724,6 +748,15 @@ function OrderWorkspace() {
             setModifierItem(null);
             await addLine(modifierItem.id, quantity, notes, modifierIds, variantId);
           }}
+        />
+      ) : null}
+
+      {extrasOpen && order ? (
+        <ExtrasModal
+          order={order}
+          extras={extras}
+          onClose={() => setExtrasOpen(false)}
+          onChanged={setOrder}
         />
       ) : null}
 
@@ -1108,9 +1141,10 @@ function ChargeModal({
   // Read from the ORDER, exactly as settleOrder does — it was agreed with the
   // customer when the order was taken, not at the till.
   const deliveryCharge = order.type === 'delivery' ? round2(order.delivery_charge ?? 0) : 0;
+  const extrasTotal = round2(order.extras_total ?? 0);
   const previewTotal = Math.max(
     0,
-    round2(order.subtotal - discountValue + serviceCharge + deliveryCharge),
+    round2(order.subtotal - discountValue + serviceCharge + deliveryCharge + extrasTotal),
   );
 
   const settle = async () => {
@@ -1180,6 +1214,13 @@ function ChargeModal({
         <div className="row-between">
           <span className="muted">{strings.order.discount}</span>
           <span className="num">−{money(discountValue)}</span>
+        </div>
+      ) : null}
+
+      {extrasTotal > 0 ? (
+        <div className="row-between">
+          <span className="muted">{strings.extras.onOrder}</span>
+          <span className="num">{money(extrasTotal)}</span>
         </div>
       ) : null}
 
@@ -1310,5 +1351,95 @@ function CategoryCard({
       <span className="category-card-name">{category.name}</span>
       <span className="category-card-count">{strings.order.itemCount(count)}</span>
     </button>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Extras — packaging, on any order type
+ * ------------------------------------------------------------------ */
+
+/**
+ * Tick what applies and set how many.
+ *
+ * The backend prices each line from the shop's list, so this sends only the
+ * extra and the quantity. Steppers rather than checkboxes because two plates
+ * is as common as one, and the counter should not have to add the same thing
+ * twice.
+ */
+function ExtrasModal({
+  order,
+  extras,
+  onClose,
+  onChanged,
+}: {
+  order: Order;
+  extras: ExtraCharge[];
+  onClose: () => void;
+  onChanged: (order: Order) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const qtyOf = (extraId: number) =>
+    order.extras.find((row) => row.extra_id === extraId)?.qty ?? 0;
+
+  const change = async (extraId: number, qty: number) => {
+    setBusy(true);
+    setError('');
+    try {
+      onChanged(await api.orders.setExtra(order.id, extraId, Math.max(0, qty)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change that.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={strings.extras.onOrder}
+      onClose={onClose}
+      footer={
+        <button className="btn primary" onClick={onClose}>
+          {strings.common.close}
+        </button>
+      }
+    >
+      {extras.length === 0 ? (
+        <div className="tiny muted">{strings.extras.setUpFirst}</div>
+      ) : (
+        <div className="deal-parts">
+          {extras.map((extra) => {
+            const qty = qtyOf(extra.id);
+            return (
+              <div className="deal-part" key={extra.id}>
+                <div className="deal-part-name">
+                  {extra.name}
+                  <span className="tiny muted"> · {money(extra.price)}</span>
+                </div>
+                <span className="qty-stepper">
+                  <button onClick={() => change(extra.id, qty - 1)} disabled={busy || qty === 0}>
+                    −
+                  </button>
+                  <span>{qty}</span>
+                  <button onClick={() => change(extra.id, qty + 1)} disabled={busy}>
+                    +
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {order.extras_total ? (
+        <div className="row-between" style={{ marginTop: 14, fontWeight: 650 }}>
+          <span>{strings.extras.onOrder}</span>
+          <span className="num">{money(order.extras_total)}</span>
+        </div>
+      ) : null}
+
+      {error ? <Notice>{error}</Notice> : null}
+    </Modal>
   );
 }

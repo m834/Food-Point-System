@@ -112,6 +112,24 @@ export const strings = {
     toDark: 'Switch to the dark theme',
   },
 
+  extras: {
+    title: 'Extras',
+    subtitle: 'Packaging and disposables, charged on any order type.',
+    add: 'Add extra',
+    name: 'Name',
+    namePlaceholder: 'e.g. Disposable plates',
+    price: 'Price',
+    cost: 'Cost to you',
+    costHint: 'Optional. Keeps profit honest — plates are not free.',
+    active: 'Offered',
+    inactive: 'Off',
+    none: 'No extras set up yet.',
+    onOrder: 'Extras',
+    addToOrder: 'Add extras',
+    emptyOnOrder: 'No extras on this order.',
+    setUpFirst: 'Set extras up in Admin → Settings first.',
+  },
+
   images: {
     photo: 'Photo',
     upload: 'Upload photo',
@@ -318,6 +336,7 @@ export const strings = {
     bestSellers: 'Best sellers',
     byHour: 'Sales by hour',
     deliveryTotal: 'Delivery charges',
+    extrasTotal: 'Extras & packaging',
     deliveryNote: 'Collected for delivery — no food cost behind it.',
     voids: 'Voids',
     noneTitle: 'Nothing in this range',

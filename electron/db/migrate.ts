@@ -163,6 +163,33 @@ CREATE TABLE IF NOT EXISTS menu_item_variants (
 
 CREATE INDEX IF NOT EXISTS idx_variants_item ON menu_item_variants(item_id, sort_order);
 
+CREATE TABLE IF NOT EXISTS extra_charges (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- "Disposable plates", "Glasses", "Carry bag".
+  name       TEXT    NOT NULL,
+  price      REAL    NOT NULL DEFAULT 0,
+  -- What the packaging actually costs the shop. Zero is fine and common,
+  -- but recording it keeps profit honest: plates are not free.
+  cost_price REAL    NOT NULL DEFAULT 0,
+  is_active  INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS order_extras (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id   INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  extra_id   INTEGER REFERENCES extra_charges(id) ON DELETE SET NULL,
+  -- Snapshots, exactly like order_items: repricing plates tomorrow must not
+  -- rewrite what a bill printed today.
+  name       TEXT    NOT NULL,
+  price      REAL    NOT NULL DEFAULT 0,
+  cost_price REAL    NOT NULL DEFAULT 0,
+  qty        REAL    NOT NULL DEFAULT 1,
+  line_total REAL    NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_extras_order ON order_extras(order_id);
+
 CREATE TABLE IF NOT EXISTS staff (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,
@@ -284,6 +311,14 @@ export function migrate(): void {
    */
   addColumn('orders', 'delivery_address', 'TEXT');
   addColumn('orders', 'delivery_charge', 'REAL NOT NULL DEFAULT 0');
+
+  /* ---- Extras (packaging, disposables) ---------------------------------
+   * Charged per ORDER, not per dish, and on every order type — a dine-in
+   * table can want disposable glasses just as a delivery can. Kept out of
+   * `subtotal`, which stays the food, so the owner can read what the kitchen
+   * sold apart from what the packaging brought in.
+   */
+  addColumn('orders', 'extras_total', 'REAL NOT NULL DEFAULT 0');
 
   // Seed any setting the build knows about but this database has not seen yet,
   // so a new key added in a later version arrives with a sane default rather

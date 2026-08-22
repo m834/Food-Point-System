@@ -78,6 +78,7 @@ app.whenReady().then(async () => {
   const menu = require(path.join(dist, 'db', 'repositories', 'menu'));
   const deals = require(path.join(dist, 'db', 'repositories', 'deals'));
   const staffRepo = require(path.join(dist, 'db', 'repositories', 'staff'));
+  const extrasRepo = require(path.join(dist, 'db', 'repositories', 'extras'));
   const session = require(path.join(dist, 'services', 'session'));
   const managerPin = require(path.join(dist, 'services', 'managerPin'));
   const cancelGuard = require(path.join(dist, 'services', 'cancelGuard'));
@@ -2354,6 +2355,154 @@ app.whenReady().then(async () => {
     ok(delivery && delivery.delivery_charge > 0, 'and shows against the delivery row');
     const takeaway = byType.find((r) => r.type === 'takeaway');
     ok(!takeaway || takeaway.delivery_charge === 0, 'takeaway shows no delivery money');
+  });
+
+
+  /* ================================================================== *
+   * 18 — Extras (packaging and disposables)
+   * ================================================================== */
+  section('18 — Extras');
+
+  settingsRepo.saveSettings({ service_charge_percent: '0' });
+  let plates = 0, glasses = 0;
+
+  test('18.1', 'The shop keeps a list of extras', () => {
+    const a = extrasRepo.saveExtra({ name: 'Disposable plates', price: 20, cost_price: 8, is_active: true, sort_order: 0 });
+    const b = extrasRepo.saveExtra({ name: 'Glasses', price: 10, cost_price: 0, is_active: true, sort_order: 1 });
+    plates = a.id; glasses = b.id;
+    eq(a.name, 'Disposable plates', 'saved');
+    eq(a.price, 20, 'priced');
+    eq(a.cost_price, 8, 'cost recorded');
+    ok(extrasRepo.listExtras(true).length >= 2, 'both offered');
+  });
+
+  test('18.2', 'Extras can be added to ANY order type', () => {
+    for (const type of ['takeaway', 'dine_in', 'delivery']) {
+      const o = orders.openOrder(
+        type === 'dine_in'
+          ? { type, table_id: T.T3 }
+          : type === 'delivery'
+            ? { type, delivery_address: 'Somewhere' }
+            : { type },
+      );
+      const r = orders.setExtraOnOrder(o.id, plates, 2);
+      eq(r.extras_total, 40, type + ' can carry extras');
+      eq(r.extras.length, 1, type + ' has the row');
+      // Clear the dine-in table for later tests.
+      orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
+    }
+  });
+
+  test('18.3', 'Extras are NOT part of the food subtotal', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const r = orders.setExtraOnOrder(o.id, plates, 2);
+    eq(r.subtotal, 400, 'subtotal is the food alone');
+    eq(r.extras_total, 40, 'packaging sits beside it');
+  });
+
+  test('18.4', 'Subtotal + extras = grand total', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    orders.setExtraOnOrder(o.id, plates, 2);   // 40
+    orders.setExtraOnOrder(o.id, glasses, 1);  // 10
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.subtotal, 400, 'food');
+    eq(settled.extras_total, 50, 'extras');
+    eq(settled.total, 450, 'total = 400 + 50');
+    // Profit deducts the food cost AND what the packaging cost (2 x 8).
+    eq(settled.profit, 450 - 180 - 16, 'packaging cost is deducted too');
+  });
+
+  test('18.5', 'Extras combine with delivery, discount and service charge', () => {
+    settingsRepo.saveSettings({ service_charge_percent: '10' });
+    const o = orders.openOrder({ type: 'delivery', delivery_address: 'X', delivery_charge: 100 });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    orders.setExtraOnOrder(o.id, plates, 1); // 20
+    const settled = orders.settleOrder(o.id, { discount: 50, payment_method: 'cash' });
+    // 400 - 50 + 40 (10%) + 100 delivery + 20 extras = 510
+    eq(settled.total, 510, 'all five terms combine');
+    settingsRepo.saveSettings({ service_charge_percent: '0' });
+  });
+
+  test('18.6', 'The quantity can be changed and removed', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    let r = orders.setExtraOnOrder(o.id, plates, 3);
+    eq(r.extras_total, 60, 'three plates');
+    r = orders.setExtraOnOrder(o.id, plates, 1);
+    eq(r.extras_total, 20, 'changed to one, not added again');
+    eq(r.extras.length, 1, 'still one row');
+    r = orders.setExtraOnOrder(o.id, plates, 0);
+    eq(r.extras_total, 0, 'zero removes it');
+    eq(r.extras.length, 0, 'and the row is gone');
+  });
+
+  test('18.7', 'Prices are snapshotted — repricing does not rewrite old bills', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    orders.setExtraOnOrder(o.id, plates, 2);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.extras_total, 40, 'billed at 20 each');
+
+    extrasRepo.saveExtra({ id: plates, name: 'Disposable plates', price: 35, cost_price: 8, is_active: true, sort_order: 0 });
+    const reread = orders.getOrder(settled.id);
+    eq(reread.extras_total, 40, 'the old bill still says 40');
+    eq(reread.extras[0].price, 20, 'the snapshot held');
+    extrasRepo.saveExtra({ id: plates, name: 'Disposable plates', price: 20, cost_price: 8, is_active: true, sort_order: 0 });
+  });
+
+  test('18.8', 'An inactive extra cannot be added', () => {
+    extrasRepo.setExtraActive(glasses, false);
+    const o = orders.openOrder({ type: 'takeaway' });
+    throws(() => orders.setExtraOnOrder(o.id, glasses, 1), 'an extra that is off is refused');
+    extrasRepo.setExtraActive(glasses, true);
+  });
+
+  test('18.9', 'The bill names each extra rather than lumping them', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    orders.setExtraOnOrder(o.id, plates, 2);
+    orders.setExtraOnOrder(o.id, glasses, 1);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const bill = receipt.buildCustomerBill(settled);
+    ok(/2 x Disposable plates\s+Rs40\.00/.test(bill), 'plates named with quantity');
+    ok(/Glasses\s+Rs10\.00/.test(bill), 'a single glass needs no "1 x"');
+    ok(/TOTAL\s+Rs450\.00/.test(bill), 'grand total includes them');
+    ok(bill.split('\n').every((l) => l.length <= 42), 'fits the roll');
+  });
+
+  test('18.10', 'Extras never reach the kitchen ticket', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    orders.setExtraOnOrder(o.id, plates, 2);
+    const { order, fired } = orders.fireToKitchen(o.id);
+    const ticket = receipt.buildKitchenTicket(order, fired);
+    ok(!/plate/i.test(ticket), 'the kitchen does not cook plates');
+  });
+
+  test('18.11', 'Reports total extras separately from food', () => {
+    const today = todayIso();
+    const before = reports.range(today, today).extras_total;
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    orders.setExtraOnOrder(o.id, plates, 5); // 100
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+    const after = reports.range(today, today);
+    eq(Math.round((after.extras_total - before) * 100) / 100, 100, 'packaging counted apart');
+    // And it is NOT counted as an item sold.
+    const sellers = reports.bestSellers(today, today, 100);
+    ok(!sellers.some((r) => /plate/i.test(r.item_name)), 'plates are not a best seller');
+  });
+
+  test('18.12', 'An order with no extras behaves exactly as before', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.extras_total, 0, 'no extras');
+    eq(settled.extras.length, 0, 'no rows');
+    eq(settled.total, 400, 'total unchanged');
+    eq(settled.profit, 400 - 180, 'profit unchanged');
+    ok(!/Extras/.test(receipt.buildCustomerBill(settled)), 'and nothing extra on the bill');
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

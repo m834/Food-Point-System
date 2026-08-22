@@ -18,6 +18,7 @@ import {
   listOrders,
   openOrder,
   setDelivery,
+  setExtraOnOrder,
   setItemQty,
   settleOrder,
   voidItem,
@@ -127,6 +128,18 @@ export function registerOrderHandlers(): void {
         : null,
     });
   });
+
+  /**
+   * Add/change/remove an extra on an open order. The renderer names which
+   * extra and how many; the backend prices it from the shop's list.
+   */
+  handle('orders:setExtra', (_e, orderId, extraId, qty) =>
+    setExtraOnOrder(
+      asId(orderId, 'Order'),
+      asId(extraId, 'Extra'),
+      asNumber(qty, 'Quantity', { min: 0, max: 999 }),
+    ),
+  );
 
   handle('orders:setItemQty', (_e, orderItemId, qty) =>
     setItemQty(asId(orderItemId, 'Line'), asNumber(qty, 'Quantity', { min: 0, max: 999 })),

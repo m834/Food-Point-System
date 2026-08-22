@@ -170,6 +170,17 @@ export function buildCustomerBill(order: Order): string {
   out.push(row('Subtotal', money(order.subtotal, symbol)));
   if (order.discount) out.push(row('Discount', `-${money(order.discount, symbol)}`));
   if (order.service_charge) out.push(row('Service charge', money(order.service_charge, symbol)));
+
+  /**
+   * Each extra on its own line, named.
+   *
+   * A single "Extras 55" line invites the question it does not answer. The
+   * customer paid for plates; the bill should say plates.
+   */
+  for (const extra of order.extras ?? []) {
+    const label = extra.qty === 1 ? extra.name : `${trimQty(extra.qty)} x ${extra.name}`;
+    out.push(row(label, money(extra.line_total, symbol)));
+  }
   // Its own line, so the customer can see what the food cost and what the
   // ride cost. Printed even at zero on a delivery, because "Delivery 0.00"
   // answers the question a blank line leaves open.

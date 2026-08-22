@@ -3,6 +3,12 @@ import { money, nowIso, orderNoPrefix } from '../money';
 import { getItem, getModifiersByIds, getVariant } from './menu';
 import { buildDealLines } from './deals';
 import { openOrderIdForTable } from './tables';
+import {
+  extrasCost,
+  listOrderExtras,
+  recomputeExtrasTotal,
+  setOrderExtra,
+} from './extras';
 import { serviceChargePercent } from './settings';
 import type {
   CancelReasonCode,
@@ -36,7 +42,7 @@ const ORDER_SELECT = `
   SELECT o.id, o.order_no, o.type, o.table_id, t.name AS table_name, o.status,
          o.opened_at, o.settled_at, o.customer_name, o.customer_phone,
          o.subtotal, o.discount, o.service_charge, o.delivery_charge,
-         o.delivery_address, o.total, o.profit,
+         o.delivery_address, o.extras_total, o.total, o.profit,
          o.payment_method, o.void_reason, o.voided_at,
          o.void_reason_code, o.void_note, o.voided_by_staff_id,
          o.voided_was_paid, s.name AS voided_by_staff_name
@@ -77,6 +83,7 @@ function hydrate(row: OrderRow): Order {
       ...item,
       modifiers: mods.filter((m) => m.order_item_id === item.id),
     })),
+    extras: listOrderExtras(row.id),
   };
 }
 
@@ -383,6 +390,29 @@ export function addDeal(orderId: number, dealId: number, quantity: number): Orde
 }
 
 /**
+ * Add, change or remove an extra on an open order.
+ *
+ * Applies to every order type — a dine-in table can want disposable glasses
+ * as readily as a delivery. Quantity zero removes it, which is what tapping a
+ * stepper down to nothing means.
+ */
+export function setExtraOnOrder(orderId: number, extraId: number, qty: number): Order {
+  const db = getDb();
+
+  const run = db.transaction(() => {
+    const order = getOrder(orderId);
+    if (!order) throw new Error('That order no longer exists.');
+    if (order.status !== 'open') throw new Error('This order is already closed.');
+
+    setOrderExtra(orderId, extraId, qty);
+    recomputeExtrasTotal(orderId);
+    return orderId;
+  });
+
+  return getOrder(run())!;
+}
+
+/**
  * Correct the delivery details on an open order.
  *
  * The address is the one field on a delivery that routinely needs fixing
@@ -592,15 +622,39 @@ export function settleOrder(orderId: number, input: SettleInput): Order {
      * shop was paid to carry food it had already costed.
      */
     const deliveryCharge = money(order.delivery_charge ?? 0);
-    const total = money(subtotal - discount + serviceCharge + deliveryCharge);
-    const profit = money(total - cogs);
+
+    /**
+     * Packaging. Recomputed here rather than trusted from the cached column,
+     * for the same reason the food subtotal is recomputed: this is the moment
+     * the money is fixed, and it must agree with the rows it came from.
+     *
+     * Its COST joins COGS. Plates are not free, and an owner who has bothered
+     * to record what they cost should see that reflected in profit rather
+     * than having packaging quietly inflate their margin.
+     */
+    const extras = money(recomputeExtrasTotal(orderId));
+    const extrasCogs = extrasCost(orderId);
+
+    const total = money(subtotal - discount + serviceCharge + deliveryCharge + extras);
+    const profit = money(total - cogs - extrasCogs);
 
     db.prepare(
       `UPDATE orders
-          SET subtotal = ?, discount = ?, service_charge = ?, total = ?, profit = ?,
+          SET subtotal = ?, discount = ?, service_charge = ?, extras_total = ?,
+              total = ?, profit = ?,
               payment_method = ?, status = 'settled', settled_at = ?
         WHERE id = ?`,
-    ).run(subtotal, discount, serviceCharge, total, profit, input.payment_method, nowIso(), orderId);
+    ).run(
+      subtotal,
+      discount,
+      serviceCharge,
+      extras,
+      total,
+      profit,
+      input.payment_method,
+      nowIso(),
+      orderId,
+    );
 
     // The table frees itself: occupancy is derived from open orders, and this
     // order is no longer open.
