@@ -356,10 +356,13 @@ app.whenReady().then(async () => {
 
     const deliv = orders.openOrder({
       type: 'delivery',
+      // v1.5: a delivery without an address is a slip the rider cannot use.
+      delivery_address: 'Flat 3B, Askari 10, Lahore',
       customer_name: 'Ali Raza',
       customer_phone: '0300-9998887',
     });
     eq(deliv.type, 'delivery', 'delivery type');
+    eq(deliv.delivery_address, 'Flat 3B, Askari 10, Lahore', 'address captured');
     eq(deliv.customer_name, 'Ali Raza', 'name captured');
     eq(deliv.customer_phone, '0300-9998887', 'phone captured');
 
@@ -562,7 +565,12 @@ app.whenReady().then(async () => {
     orders.addItems(b.id, [{ menu_item_id: item['Seekh Kebab'], qty: 2, modifier_ids: [] }]);
     const c = orders.openOrder({ type: 'takeaway' });
     orders.addItems(c.id, [{ menu_item_id: item['Cold Drink'], qty: 4, modifier_ids: [] }]);
-    const d = orders.openOrder({ type: 'delivery', customer_name: 'Sana', customer_phone: '0301-1112223' });
+    const d = orders.openOrder({
+      type: 'delivery',
+      customer_name: 'Sana',
+      customer_phone: '0301-1112223',
+      delivery_address: 'House 12, Street 4, Gulberg',
+    });
     orders.addItems(d.id, [{ menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [modCheese] }]);
 
     const open = orders.listOpenOrders();
@@ -990,6 +998,7 @@ app.whenReady().then(async () => {
     settingsRepo.saveSettings({ service_charge_percent: '5' });
     const o = orders.openOrder({
       type: 'delivery',
+      delivery_address: 'House 12, Street 4, Gulberg',
       customer_name: 'Bilal',
       customer_phone: '0333-4445556',
     });
@@ -2169,6 +2178,182 @@ app.whenReady().then(async () => {
     eq(adminSession.isAdmin(), true, 'activity keeps it alive');
     adminSession.lockAdmin();
     eq(adminSession.isAdmin(), false, 'and it can always be ended outright');
+  });
+
+
+  /* ================================================================== *
+   * 17 — Delivery
+   * ================================================================== */
+  section('17 — Delivery');
+
+  settingsRepo.saveSettings({ service_charge_percent: '0' });
+
+  test('17.1', 'A delivery order cannot be started without an address', () => {
+    const msg = throws(
+      () => orders.openOrder({ type: 'delivery' }),
+      'a blank address is refused',
+    );
+    ok(/address/i.test(msg), 'and the message says why');
+    throws(
+      () => orders.openOrder({ type: 'delivery', delivery_address: '   ' }),
+      'whitespace is not an address',
+    );
+  });
+
+  test('17.2', 'Address and charge are stored on the order', () => {
+    const o = orders.openOrder({
+      type: 'delivery',
+      delivery_address: 'House 7, Block C, Johar Town',
+      delivery_charge: 150,
+      customer_name: 'Usman',
+      customer_phone: '0321-1234567',
+    });
+    eq(o.delivery_address, 'House 7, Block C, Johar Town', 'address stored');
+    eq(o.delivery_charge, 150, 'charge stored as its own field');
+    eq(o.customer_name, 'Usman', 'name stored');
+  });
+
+  test('17.3', 'The charge is a SEPARATE field, never folded into item prices', () => {
+    const o = orders.openOrder({ type: 'delivery', delivery_address: 'A', delivery_charge: 200 });
+    const r = orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    // Subtotal is food only. The fee lives beside it, not inside it.
+    eq(r.subtotal, 400, 'subtotal is the food alone');
+    eq(r.items[0].line_total, 400, 'the item line is untouched by the fee');
+    eq(r.delivery_charge, 200, 'the fee sits in its own column');
+  });
+
+  test('17.4', 'Subtotal + delivery = grand total', () => {
+    const o = orders.openOrder({ type: 'delivery', delivery_address: 'B', delivery_charge: 150 });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.subtotal, 800, 'food subtotal');
+    eq(settled.delivery_charge, 150, 'delivery kept separate');
+    eq(settled.total, 950, 'total = 800 + 150');
+    // The fee has no food cost, so it lands whole in profit.
+    eq(settled.profit, 950 - 2 * 180, 'profit = total - real food cost');
+  });
+
+  test('17.5', 'Delivery works alongside a discount and a service charge', () => {
+    settingsRepo.saveSettings({ service_charge_percent: '10' });
+    const o = orders.openOrder({ type: 'delivery', delivery_address: 'C', delivery_charge: 100 });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { discount: 50, payment_method: 'cash' });
+    // 400 - 50 + 40 (10% of 400) + 100 = 490
+    eq(settled.total, 490, 'all four terms combine correctly');
+    settingsRepo.saveSettings({ service_charge_percent: '0' });
+  });
+
+  test('17.6', 'A zero charge is allowed', () => {
+    const o = orders.openOrder({ type: 'delivery', delivery_address: 'D', delivery_charge: 0 });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.delivery_charge, 0, 'free delivery is a real choice');
+    eq(settled.total, 80, 'total is just the food');
+  });
+
+  test('17.7', 'DINE-IN and TAKEAWAY are completely unaffected', () => {
+    const t = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(t.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const tSettled = orders.settleOrder(t.id, { payment_method: 'cash' });
+    eq(tSettled.delivery_charge, 0, 'takeaway carries no fee');
+    eq(tSettled.delivery_address, null, 'and no address');
+    eq(tSettled.total, 400, 'takeaway total is unchanged');
+
+    const d = orders.openOrder({ type: 'dine_in', table_id: T.T2 });
+    orders.addItems(d.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const dSettled = orders.settleOrder(d.id, { payment_method: 'cash' });
+    eq(dSettled.delivery_charge, 0, 'dine-in carries no fee');
+    eq(dSettled.total, 400, 'dine-in total is unchanged');
+    // Even if a caller passes delivery fields, a non-delivery order ignores them.
+    const sneaky = orders.openOrder({ type: 'takeaway', delivery_address: 'X', delivery_charge: 999 });
+    eq(sneaky.delivery_charge, 0, 'a fee cannot be attached to a takeaway');
+    eq(sneaky.delivery_address, null, 'nor an address');
+  });
+
+  test('17.8', 'The customer bill carries the address and the fee', () => {
+    const o = orders.openOrder({
+      type: 'delivery',
+      delivery_address: 'House 7, Block C, Johar Town',
+      delivery_charge: 150,
+      customer_name: 'Usman',
+      customer_phone: '0321-1234567',
+    });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const bill = receipt.buildCustomerBill(settled);
+
+    ok(/\*\*\* DELIVERY \*\*\*/.test(bill), 'DELIVERY is called out near the top');
+    ok(/House 7, Block C, Johar Town/.test(bill), 'the rider gets the address');
+    ok(/Customer: Usman/.test(bill), 'and the name');
+    ok(/Phone: 0321-1234567/.test(bill), 'and the phone');
+    ok(/Delivery\s+Rs150\.00/.test(bill), 'the fee is its own line');
+    ok(/TOTAL\s+Rs550\.00/.test(bill), 'and the grand total includes it');
+    ok(bill.split('\n').every((l) => l.length <= 42), 'still fits a 42-col roll');
+  });
+
+  test('17.9', 'The KITCHEN ticket gets the label and nothing more', () => {
+    const o = orders.openOrder({
+      type: 'delivery',
+      delivery_address: 'House 7, Block C, Johar Town',
+      delivery_charge: 150,
+      customer_name: 'Usman',
+      customer_phone: '0321-1234567',
+    });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    const { order, fired } = orders.fireToKitchen(o.id);
+    const ticket = receipt.buildKitchenTicket(order, fired);
+
+    ok(/DELIVERY/.test(ticket), 'the kitchen is told it is a delivery');
+    ok(!/Johar Town/.test(ticket), 'but NOT the address');
+    ok(!/0321-1234567/.test(ticket), 'nor the phone');
+    ok(!/150/.test(ticket), 'nor the money');
+  });
+
+  test('17.10', 'A long address wraps rather than truncating', () => {
+    const long = 'Flat 4B, Second Floor, Al-Hamd Plaza, Near Chowk Yateem Khana, Multan Road, Lahore';
+    const o = orders.openOrder({ type: 'delivery', delivery_address: long, delivery_charge: 0 });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const bill = receipt.buildCustomerBill(settled);
+    ok(bill.split('\n').every((l) => l.length <= 42), 'every line fits the roll');
+    // Half an address is worse than none — it looks complete.
+    ok(/Multan Road/.test(bill), 'the tail of the address survives');
+    ok(/Al-Hamd Plaza/.test(bill), 'and the middle');
+  });
+
+  test('17.11', 'The address can be corrected on an open order', () => {
+    const o = orders.openOrder({ type: 'delivery', delivery_address: 'Wrong house', delivery_charge: 50 });
+    const fixed = orders.setDelivery(o.id, {
+      delivery_address: 'Right house, Street 9',
+      delivery_charge: 120,
+    });
+    eq(fixed.delivery_address, 'Right house, Street 9', 'address corrected');
+    eq(fixed.delivery_charge, 120, 'fee corrected too');
+    throws(
+      () => orders.setDelivery(o.id, { delivery_address: '  ' }),
+      'it cannot be blanked',
+    );
+    const t = orders.openOrder({ type: 'takeaway' });
+    throws(
+      () => orders.setDelivery(t.id, { delivery_address: 'somewhere' }),
+      'and a takeaway has no delivery to set',
+    );
+  });
+
+  test('17.12', 'Reports total the delivery charges separately', () => {
+    const today = todayIso();
+    const before = reports.range(today, today).delivery_total;
+    const o = orders.openOrder({ type: 'delivery', delivery_address: 'E', delivery_charge: 250 });
+    orders.addItems(o.id, [{ menu_item_id: item['Cold Drink'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+
+    const after = reports.range(today, today);
+    eq(Math.round((after.delivery_total - before) * 100) / 100, 250, 'the fee is counted');
+    const byType = reports.salesByType(today, today);
+    const delivery = byType.find((r) => r.type === 'delivery');
+    ok(delivery && delivery.delivery_charge > 0, 'and shows against the delivery row');
+    const takeaway = byType.find((r) => r.type === 'takeaway');
+    ok(!takeaway || takeaway.delivery_charge === 0, 'takeaway shows no delivery money');
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

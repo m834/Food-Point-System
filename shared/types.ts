@@ -152,6 +152,10 @@ export interface Order {
   subtotal: number;
   discount: number;
   service_charge: number;
+  /** Charged to deliver. Its own field, never folded into item prices. */
+  delivery_charge: number;
+  /** Where the rider is going. Required for a delivery order. */
+  delivery_address: string | null;
   total: number;
   /** Locked in at settle time from snapshots. Null while the order is open. */
   profit: number | null;
@@ -388,6 +392,8 @@ export interface RangeTotals {
   to: string;
   sales_total: number;
   profit_total: number;
+  /** Delivery fees taken in the period — money with no food cost behind it. */
+  delivery_total: number;
   order_count: number;
   days: Array<{ date: string; sales: number; profit: number; orders: number }>;
 }
@@ -397,6 +403,8 @@ export interface SalesByType {
   order_count: number;
   sales: number;
   profit: number;
+  /** Zero for dine-in and takeaway; the fees collected for delivery. */
+  delivery_charge: number;
 }
 
 export interface BestSeller {
@@ -459,6 +467,8 @@ export const SETTING_KEYS = {
   managerPin: 'manager_pin',
   /** 'dark' or 'light'. The counter's choice, kept across restarts. */
   theme: 'theme',
+  /** Pre-filled on a delivery order; staff can still change it per order. */
+  deliveryCharge: 'delivery_charge',
   /**
    * Filename of the shop logo inside <userData>/upload/logo/.
    * A filename, never a URL — the app must render it with no network.
@@ -480,6 +490,7 @@ export const DEFAULT_SETTINGS: SettingsMap = {
   [SETTING_KEYS.currencySymbol]: 'Rs.',
   [SETTING_KEYS.managerPin]: '',
   [SETTING_KEYS.theme]: 'dark',
+  [SETTING_KEYS.deliveryCharge]: '0',
   [SETTING_KEYS.shopLogo]: '',
   [SETTING_KEYS.receiptFooter]: '',
 };

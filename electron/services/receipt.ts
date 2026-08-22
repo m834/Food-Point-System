@@ -100,6 +100,22 @@ export function buildCustomerBill(order: Order): string {
   const [orderLine, whereLine] = header(order);
   out.push(row(orderLine, whereLine));
   out.push(order.settled_at ?? order.opened_at);
+
+  /**
+   * The delivery block — this slip is what the rider carries.
+   *
+   * Banner-lined and near the top so it cannot be missed on a busy pass, and
+   * the address is wrapped rather than truncated: half an address is worse
+   * than none, because it looks complete.
+   */
+  if (order.type === 'delivery') {
+    out.push('');
+    out.push(centre('*** DELIVERY ***'));
+    if (order.delivery_address) {
+      out.push(...wrap(order.delivery_address, WIDTH));
+    }
+  }
+
   if (order.customer_name) out.push(`Customer: ${order.customer_name}`);
   if (order.customer_phone) out.push(`Phone: ${order.customer_phone}`);
   out.push(line());
@@ -154,6 +170,12 @@ export function buildCustomerBill(order: Order): string {
   out.push(row('Subtotal', money(order.subtotal, symbol)));
   if (order.discount) out.push(row('Discount', `-${money(order.discount, symbol)}`));
   if (order.service_charge) out.push(row('Service charge', money(order.service_charge, symbol)));
+  // Its own line, so the customer can see what the food cost and what the
+  // ride cost. Printed even at zero on a delivery, because "Delivery 0.00"
+  // answers the question a blank line leaves open.
+  if (order.type === 'delivery') {
+    out.push(row('Delivery', money(order.delivery_charge, symbol)));
+  }
   out.push(line('='));
   out.push(row('TOTAL', money(order.total, symbol)));
   if (order.payment_method) {
@@ -201,6 +223,13 @@ export function buildKitchenTicket(order: Order, fired: OrderItem[]): string {
   out.push(line('*'));
   out.push(orderLine);
   out.push(whereLine);
+  /**
+   * The kitchen is told it is a delivery — it changes packing, not cooking —
+   * and deliberately nothing more. The address, the phone and the money are
+   * the counter's business; a pass covered in customer details is a pass
+   * where the food is harder to read.
+   */
+  if (order.type === 'delivery') out.push('** DELIVERY **');
   out.push(new Date().toTimeString().slice(0, 5));
   out.push(line());
 

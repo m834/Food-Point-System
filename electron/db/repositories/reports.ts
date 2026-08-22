@@ -93,13 +93,19 @@ export function range(from: string, to: string): RangeTotals {
 
   const totals = db
     .prepare(
-      `SELECT COALESCE(SUM(total), 0)  AS sales_total,
-              COALESCE(SUM(profit), 0) AS profit_total,
-              COUNT(*)                 AS order_count
+      `SELECT COALESCE(SUM(total), 0)           AS sales_total,
+              COALESCE(SUM(profit), 0)          AS profit_total,
+              COALESCE(SUM(delivery_charge), 0) AS delivery_total,
+              COUNT(*)                          AS order_count
          FROM orders
         WHERE status = 'settled' AND date(settled_at) BETWEEN ? AND ?`,
     )
-    .get(from, to) as { sales_total: number; profit_total: number; order_count: number };
+    .get(from, to) as {
+    sales_total: number;
+    profit_total: number;
+    delivery_total: number;
+    order_count: number;
+  };
 
   const days = db
     .prepare(
@@ -119,6 +125,9 @@ export function range(from: string, to: string): RangeTotals {
     to,
     sales_total: money(totals.sales_total),
     profit_total: money(totals.profit_total),
+    // Money taken for delivery, kept separate from what the kitchen sold —
+    // it carries no food cost, so an owner reading margin needs it apart.
+    delivery_total: money(totals.delivery_total),
     order_count: totals.order_count,
     days,
   };
@@ -129,9 +138,10 @@ export function salesByType(from: string, to: string): SalesByType[] {
   return getDb()
     .prepare(
       `SELECT type,
-              COUNT(*)                 AS order_count,
-              COALESCE(SUM(total), 0)  AS sales,
-              COALESCE(SUM(profit), 0) AS profit
+              COUNT(*)                          AS order_count,
+              COALESCE(SUM(total), 0)           AS sales,
+              COALESCE(SUM(profit), 0)          AS profit,
+              COALESCE(SUM(delivery_charge), 0) AS delivery_charge
          FROM orders
         WHERE status = 'settled' AND date(settled_at) BETWEEN ? AND ?
         GROUP BY type

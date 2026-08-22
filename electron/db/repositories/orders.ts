@@ -35,7 +35,8 @@ import { CANCEL_REASON_LABELS } from '../../../shared/types';
 const ORDER_SELECT = `
   SELECT o.id, o.order_no, o.type, o.table_id, t.name AS table_name, o.status,
          o.opened_at, o.settled_at, o.customer_name, o.customer_phone,
-         o.subtotal, o.discount, o.service_charge, o.total, o.profit,
+         o.subtotal, o.discount, o.service_charge, o.delivery_charge,
+         o.delivery_address, o.total, o.profit,
          o.payment_method, o.void_reason, o.voided_at,
          o.void_reason_code, o.void_note, o.voided_by_staff_id,
          o.voided_was_paid, s.name AS voided_by_staff_name
@@ -172,6 +173,10 @@ export interface OpenOrderInput {
   table_id?: number | null;
   customer_name?: string | null;
   customer_phone?: string | null;
+  /** Required for a delivery order — the rider has to be told where to go. */
+  delivery_address?: string | null;
+  /** Defaults from settings, but the counter can change it per order. */
+  delivery_charge?: number;
 }
 
 export function openOrder(input: OpenOrderInput): Order {
@@ -187,11 +192,26 @@ export function openOrder(input: OpenOrderInput): Order {
       }
     }
 
+    /**
+     * A delivery order without an address is a slip the rider cannot use, so
+     * it is refused at the point of creation rather than at settle time —
+     * by then the food is cooked and the customer is waiting.
+     */
+    const isDelivery = input.type === 'delivery';
+    const address = (input.delivery_address ?? '').trim();
+    if (isDelivery && !address) {
+      throw new Error('A delivery order needs an address.');
+    }
+
+    // Non-delivery orders never carry either field, whatever the UI sent.
+    const deliveryCharge = isDelivery ? money(Math.max(input.delivery_charge ?? 0, 0)) : 0;
+
     const info = db
       .prepare(
         `INSERT INTO orders (order_no, type, table_id, status, opened_at,
-                             customer_name, customer_phone)
-         VALUES (?, ?, ?, 'open', ?, ?, ?)`,
+                             customer_name, customer_phone,
+                             delivery_address, delivery_charge)
+         VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
       )
       .run(
         nextOrderNo(),
@@ -200,6 +220,8 @@ export function openOrder(input: OpenOrderInput): Order {
         nowIso(),
         input.customer_name || null,
         input.customer_phone || null,
+        isDelivery ? address : null,
+        deliveryCharge,
       );
 
     return Number(info.lastInsertRowid);
@@ -361,6 +383,53 @@ export function addDeal(orderId: number, dealId: number, quantity: number): Orde
 }
 
 /**
+ * Correct the delivery details on an open order.
+ *
+ * The address is the one field on a delivery that routinely needs fixing
+ * after the order is taken, and the charge sometimes moves with it when the
+ * customer turns out to be further away. Refusing to blank the address is the
+ * same rule as at creation: a delivery slip with no address is useless.
+ */
+export function setDelivery(
+  orderId: number,
+  input: {
+    delivery_address: string;
+    delivery_charge?: number;
+    customer_name?: string | null;
+    customer_phone?: string | null;
+  },
+): Order {
+  const db = getDb();
+
+  const run = db.transaction(() => {
+    const order = getOrder(orderId);
+    if (!order) throw new Error('That order no longer exists.');
+    if (order.status !== 'open') throw new Error('This order is already closed.');
+    if (order.type !== 'delivery') throw new Error('This is not a delivery order.');
+
+    const address = input.delivery_address.trim();
+    if (!address) throw new Error('A delivery order needs an address.');
+
+    db.prepare(
+      `UPDATE orders
+          SET delivery_address = ?, delivery_charge = ?,
+              customer_name = ?, customer_phone = ?
+        WHERE id = ?`,
+    ).run(
+      address,
+      money(Math.max(input.delivery_charge ?? order.delivery_charge, 0)),
+      input.customer_name || null,
+      input.customer_phone || null,
+      orderId,
+    );
+
+    return orderId;
+  });
+
+  return getOrder(run())!;
+}
+
+/**
  * Change the quantity of a line that has NOT gone to the kitchen yet.
  *
  * Only `new` lines can move. Once a line is fired the kitchen is already
@@ -511,7 +580,19 @@ export function settleOrder(orderId: number, input: SettleInput): Order {
     const discount = money(Math.min(Math.max(input.discount ?? 0, 0), subtotal));
     // Read from settings in the main process — never taken from the renderer.
     const serviceCharge = money((subtotal * serviceChargePercent()) / 100);
-    const total = money(subtotal - discount + serviceCharge);
+
+    /**
+     * The delivery fee is read from the ORDER, not from the renderer at
+     * settle time — it was agreed with the customer when the order was taken,
+     * and letting the settle screen supply a different number would let the
+     * counter quote one price and bank another.
+     *
+     * It carries no cost of goods, so deriving profit from `total` (as this
+     * always has) means the whole fee lands in profit, which is correct: the
+     * shop was paid to carry food it had already costed.
+     */
+    const deliveryCharge = money(order.delivery_charge ?? 0);
+    const total = money(subtotal - discount + serviceCharge + deliveryCharge);
     const profit = money(total - cogs);
 
     db.prepare(

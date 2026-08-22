@@ -117,6 +117,12 @@ export default function ReportsPage() {
         <div className="grid" style={{ gap: 18 }}>
           <div className="stat-grid">
             <Stat label={strings.reports.sales} value={money(totals.sales_total)} />
+            <Stat
+              label={strings.reports.deliveryTotal}
+              value={money(totals.delivery_total)}
+              note={totals.delivery_total ? strings.reports.deliveryNote : undefined}
+              tone="b"
+            />
             <Stat label={strings.reports.profit} value={money(totals.profit_total)} profit />
             <Stat label={strings.reports.orders} value={String(totals.order_count)} />
             <Stat

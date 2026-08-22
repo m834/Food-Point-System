@@ -68,6 +68,8 @@ const api = {
       ipcRenderer.invoke('orders:addItems', orderId, lines),
     addDeal: (orderId: number, dealId: number, quantity?: number) =>
       ipcRenderer.invoke('orders:addDeal', orderId, dealId, quantity),
+    setDelivery: (orderId: number, input: unknown) =>
+      ipcRenderer.invoke('orders:setDelivery', orderId, input),
     setItemQty: (orderItemId: number, qty: number) =>
       ipcRenderer.invoke('orders:setItemQty', orderItemId, qty),
     fire: (orderId: number) => ipcRenderer.invoke('orders:fire', orderId),

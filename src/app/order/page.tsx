@@ -22,6 +22,7 @@ import {
   type OpenOrderSummary,
   type Order,
   type OrderType,
+  type SettingsMap,
 } from '../../../shared/types';
 
 /**
@@ -43,7 +44,7 @@ export default function OrderPage() {
 }
 
 function OrderWorkspace() {
-  const { toast, tablesEnabled } = useApp();
+  const { toast, tablesEnabled, settings } = useApp();
 
   // The floor screen links here: ?order=N resumes, ?table=N starts on a table.
   const params = useSearchParams();
@@ -704,6 +705,7 @@ function OrderWorkspace() {
       {startOpen ? (
         <StartOrderModal
           tablesEnabled={tablesEnabled}
+          settings={settings}
           initialTableId={startTableId}
           onClose={() => setStartOpen(false)}
           onStarted={async (created) => {
@@ -762,10 +764,12 @@ function OrderWorkspace() {
 
 function StartOrderModal({
   tablesEnabled,
+  settings,
   initialTableId = null,
   onClose,
   onStarted,
 }: {
+  settings: SettingsMap;
   tablesEnabled: boolean;
   /** Preselected when the floor screen sent us here by tapping a free table. */
   initialTableId?: number | null;
@@ -777,6 +781,12 @@ function StartOrderModal({
   const [tableId, setTableId] = useState<number | null>(initialTableId);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  // Pre-filled from Settings, but the counter can change it for this order —
+  // a far-out address costs more to reach than a nearby one.
+  const [deliveryCharge, setDeliveryCharge] = useState(
+    settings[SETTING_KEYS.deliveryCharge] ?? '0',
+  );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -797,6 +807,8 @@ function StartOrderModal({
         table_id: type === 'dine_in' ? tableId : null,
         customer_name: name || null,
         customer_phone: phone || null,
+        delivery_address: type === 'delivery' ? address.trim() : null,
+        delivery_charge: type === 'delivery' ? Number(deliveryCharge) || 0 : undefined,
       });
       await onStarted(created);
     } catch (err) {
@@ -820,7 +832,17 @@ function StartOrderModal({
           <button
             className="btn primary"
             onClick={start}
-            disabled={busy || (type === 'dine_in' && !tableId)}
+            disabled={
+              busy ||
+              (type === 'dine_in' && !tableId) ||
+              // Never let a delivery slip print with a blank address.
+              (type === 'delivery' && !address.trim())
+            }
+            title={
+              type === 'delivery' && !address.trim()
+                ? strings.order.deliveryNeedsAddress
+                : undefined
+            }
           >
             {strings.order.startOrder}
           </button>
@@ -863,14 +885,46 @@ function StartOrderModal({
           </Notice>
         )
       ) : (
-        <div className="field-row">
-          <Field label={`${strings.order.customerName} (${strings.order.optional})`}>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label={`${strings.order.customerPhone} (${strings.order.optional})`}>
-            <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </Field>
-        </div>
+        <>
+          {/* Delivery needs somewhere to go, and what it costs to get there.
+              Dine-in and takeaway are untouched by any of this. */}
+          {type === 'delivery' ? (
+            <>
+              <Field
+                label={strings.order.deliveryAddress}
+                hint={strings.order.deliveryAddressHint}
+              >
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                  placeholder={strings.order.deliveryAddressPlaceholder}
+                  autoFocus
+                />
+              </Field>
+              <Field label={strings.order.deliveryCharge}>
+                <input
+                  className="input num"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={deliveryCharge}
+                  onChange={(event) => setDeliveryCharge(event.target.value)}
+                />
+              </Field>
+            </>
+          ) : null}
+
+          <div className="field-row">
+            <Field label={`${strings.order.customerName} (${strings.order.optional})`}>
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+            <Field label={`${strings.order.customerPhone} (${strings.order.optional})`}>
+              <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </Field>
+          </div>
+        </>
       )}
 
       {error ? <Notice>{error}</Notice> : null}
@@ -1051,7 +1105,13 @@ function ChargeModal({
   // matching settleOrder(), or the counter would quote a number the bill
   // contradicts.
   const serviceCharge = round2((order.subtotal * chargePercent) / 100);
-  const previewTotal = Math.max(0, round2(order.subtotal - discountValue + serviceCharge));
+  // Read from the ORDER, exactly as settleOrder does — it was agreed with the
+  // customer when the order was taken, not at the till.
+  const deliveryCharge = order.type === 'delivery' ? round2(order.delivery_charge ?? 0) : 0;
+  const previewTotal = Math.max(
+    0,
+    round2(order.subtotal - discountValue + serviceCharge + deliveryCharge),
+  );
 
   const settle = async () => {
     setBusy(true);
@@ -1120,6 +1180,13 @@ function ChargeModal({
         <div className="row-between">
           <span className="muted">{strings.order.discount}</span>
           <span className="num">−{money(discountValue)}</span>
+        </div>
+      ) : null}
+
+      {order.type === 'delivery' ? (
+        <div className="row-between">
+          <span className="muted">{strings.order.deliveryCharge}</span>
+          <span className="num">{money(deliveryCharge)}</span>
         </div>
       ) : null}
 

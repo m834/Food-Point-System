@@ -17,6 +17,7 @@ import {
   listOpenOrders,
   listOrders,
   openOrder,
+  setDelivery,
   setItemQty,
   settleOrder,
   voidItem,
@@ -64,6 +65,15 @@ export function registerOrderHandlers(): void {
       customer_phone: raw.customer_phone
         ? asString(raw.customer_phone, 'Phone', { required: false, max: 30 })
         : null,
+      // Only meaningful for a delivery; the repository ignores them otherwise
+      // and enforces that an address is actually present.
+      delivery_address: raw.delivery_address
+        ? asString(raw.delivery_address, 'Delivery address', { required: false, max: 300 })
+        : null,
+      delivery_charge:
+        raw.delivery_charge === undefined
+          ? undefined
+          : asMoney(raw.delivery_charge, 'Delivery charge'),
     });
   });
 
@@ -95,6 +105,28 @@ export function registerOrderHandlers(): void {
       quantity === undefined ? 1 : asNumber(quantity, 'Quantity', { min: 1, max: 99 }),
     ),
   );
+
+  /**
+   * Change the delivery details on an open order.
+   *
+   * A rider's address gets corrected more often than anything else on a
+   * delivery — a wrong house number is caught while the food cooks — so it
+   * must be editable without voiding and re-taking the order.
+   */
+  handle('orders:setDelivery', (_e, orderId, input) => {
+    const raw = (input ?? {}) as Record<string, unknown>;
+    return setDelivery(asId(orderId, 'Order'), {
+      delivery_address: asString(raw.delivery_address, 'Delivery address', { max: 300 }),
+      delivery_charge:
+        raw.delivery_charge === undefined ? undefined : asMoney(raw.delivery_charge, 'Delivery charge'),
+      customer_name: raw.customer_name
+        ? asString(raw.customer_name, 'Customer name', { required: false, max: 80 })
+        : null,
+      customer_phone: raw.customer_phone
+        ? asString(raw.customer_phone, 'Phone', { required: false, max: 30 })
+        : null,
+    });
+  });
 
   handle('orders:setItemQty', (_e, orderItemId, qty) =>
     setItemQty(asId(orderItemId, 'Line'), asNumber(qty, 'Quantity', { min: 0, max: 999 })),

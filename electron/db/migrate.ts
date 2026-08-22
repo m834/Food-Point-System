@@ -273,6 +273,18 @@ export function migrate(): void {
   addColumn('order_items', 'variant_name', 'TEXT');
   addColumn('order_items', 'variant_id', 'INTEGER');
 
+  /* ---- Delivery (added after v1 shipped) --------------------------------
+   * `delivery` was already a valid order type, but had nowhere to record
+   * where the food goes or what was charged to take it there.
+   *
+   * The charge is its OWN column beside discount and service_charge, never
+   * folded into an item price: a delivery fee is not food, it carries no cost
+   * of goods, and the owner needs to see it separately from what the kitchen
+   * actually sold.
+   */
+  addColumn('orders', 'delivery_address', 'TEXT');
+  addColumn('orders', 'delivery_charge', 'REAL NOT NULL DEFAULT 0');
+
   // Seed any setting the build knows about but this database has not seen yet,
   // so a new key added in a later version arrives with a sane default rather
   // than an empty string.

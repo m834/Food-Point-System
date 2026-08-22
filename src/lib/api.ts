@@ -127,7 +127,19 @@ export const api = {
       table_id?: number | null;
       customer_name?: string | null;
       customer_phone?: string | null;
+      delivery_address?: string | null;
+      delivery_charge?: number;
     }) => call<Order>('orders', 'open', input),
+    /** Correct the address or fee on an open delivery order. */
+    setDelivery: (
+      orderId: number,
+      input: {
+        delivery_address: string;
+        delivery_charge?: number;
+        customer_name?: string | null;
+        customer_phone?: string | null;
+      },
+    ) => call<Order>('orders', 'setDelivery', orderId, input),
     get: (id: number) => call<Order | null>('orders', 'get', id),
     listOpen: () => call<OpenOrderSummary[]>('orders', 'listOpen'),
     list: (from: string, to: string, status?: 'settled' | 'void' | 'open') =>
