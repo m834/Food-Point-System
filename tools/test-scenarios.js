@@ -159,6 +159,8 @@ app.whenReady().then(async () => {
   settingsRepo.saveSettings({
     enable_tables: '1',
     enable_kitchen_print: '1',
+    service_charge_mode: 'fixed',
+    service_charge_amount: '0',
     service_charge_percent: '0',
     currency_symbol: 'Rs',
     business_name: 'Test Food Point',
@@ -646,7 +648,7 @@ app.whenReady().then(async () => {
   });
 
   test('7.3', 'Service charge 10% on subtotal 800', () => {
-    settingsRepo.saveSettings({ service_charge_percent: '10' });
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
     const o = orders.openOrder({ type: 'takeaway' });
     orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
     const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
@@ -685,7 +687,7 @@ app.whenReady().then(async () => {
       [15, 5000], // discount larger than the bill
       [7.5, 33.33], // awkward percentage and an awkward discount
     ]) {
-      settingsRepo.saveSettings({ service_charge_percent: String(pct) });
+      settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: String(pct) });
       const o = orders.openOrder({ type: 'takeaway' });
       orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
       const subtotal = orders.getOrder(o.id).subtotal;
@@ -997,7 +999,7 @@ app.whenReady().then(async () => {
   });
 
   test('9.5', 'Customer bill contents', () => {
-    settingsRepo.saveSettings({ service_charge_percent: '5' });
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '5' });
     const o = orders.openOrder({
       type: 'delivery',
       delivery_address: 'House 12, Street 4, Gulberg',
@@ -2236,7 +2238,7 @@ app.whenReady().then(async () => {
   });
 
   test('17.5', 'Delivery works alongside a discount and a service charge', () => {
-    settingsRepo.saveSettings({ service_charge_percent: '10' });
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
     const o = orders.openOrder({ type: 'delivery', delivery_address: 'C', delivery_charge: 100 });
     orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
     const settled = orders.settleOrder(o.id, { discount: 50, payment_method: 'cash' });
@@ -2416,7 +2418,7 @@ app.whenReady().then(async () => {
   });
 
   test('18.5', 'Extras combine with delivery, discount and service charge', () => {
-    settingsRepo.saveSettings({ service_charge_percent: '10' });
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
     const o = orders.openOrder({ type: 'delivery', delivery_address: 'X', delivery_charge: 100 });
     orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
     orders.setExtraOnOrder(o.id, plates, 1); // 20
@@ -2789,6 +2791,300 @@ app.whenReady().then(async () => {
     const o = orders.openOrder({ type: 'delivery', delivery_address: 'Post-restore address' });
     eq(o.delivery_address, 'Post-restore address', 'a delivery order can be taken immediately');
     ok(customersRepo.listCustomers().length >= 0, 'and the customer table answers');
+  });
+
+  /* ================= Section 22 — Service charge modes ================= */
+  section('22 — Service charge (fixed or percent)');
+
+  /**
+   * Fresh menu items for the last two sections.
+   *
+   * Earlier sections delete, rename and hide the shared seed items, so a test
+   * down here that reaches for `item['Cold Drink']` is testing whatever
+   * section 13 happened to leave behind. These belong to sections 22-23 alone
+   * and have round numbers chosen so a margin can be read by eye.
+   */
+  const dayCat = Number(
+    getDb().prepare('INSERT INTO menu_categories (name, sort_order) VALUES (?, ?)').run('Day Test', 99)
+      .lastInsertRowid,
+  );
+  const D = {};
+  for (const [name, sale, cost] of [
+    ['Day Biryani', 400, 180],
+    ['Day Kebab', 600, 300],
+    ['Day Tikka', 550, 280],
+    ['Day Water', 60, 30],
+    ['Day Burger', 350, 150],
+  ]) {
+    D[name] = Number(
+      getDb()
+        .prepare(
+          `INSERT INTO menu_items (name, category_id, sale_price, cost_price, is_available, sort_order)
+           VALUES (?, ?, ?, ?, 1, 0)`,
+        )
+        .run(name, dayCat, sale, cost).lastInsertRowid,
+    );
+  }
+  // Section 9.5 and friends rewrite the shop name; the slip test below reads it.
+  settingsRepo.saveSettings({ business_name: 'Test Food Point' });
+
+  test('22.1', 'Fixed is the default', () => {
+    settingsRepo.saveSettings({ service_charge_mode: '', service_charge_amount: '0', service_charge_percent: '0' });
+    eq(settingsRepo.serviceChargeMode(), 'fixed', 'a blank mode means fixed');
+    eq(settingsRepo.serviceChargeFor(1000), 0, 'and nothing is charged until an amount is set');
+  });
+
+  test('22.2', 'A fixed amount is the SAME on every bill', () => {
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '50' });
+    eq(settingsRepo.serviceChargeFor(100), 50, 'small bill');
+    eq(settingsRepo.serviceChargeFor(10000), 50, 'large bill — still 50, that is the point');
+    eq(settingsRepo.serviceChargeFor(0), 50, 'even an empty subtotal');
+  });
+
+  test('22.3', 'A percentage scales with the bill', () => {
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
+    eq(settingsRepo.serviceChargeFor(100), 10, '10% of 100');
+    eq(settingsRepo.serviceChargeFor(455), 45.5, 'rounded to paisa, not to rupees');
+    eq(settingsRepo.serviceChargeFor(0), 0, 'nothing ordered, nothing charged');
+  });
+
+  test('22.4', 'The fixed amount is ignored while on percent, and vice versa', () => {
+    // Both numbers are stored; only the chosen one may reach a bill. A shop
+    // that experiments with the other mode must not be double-charged.
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10', service_charge_amount: '500' });
+    eq(settingsRepo.serviceChargeFor(200), 20, 'percent mode ignores the fixed amount');
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed' });
+    eq(settingsRepo.serviceChargeFor(200), 500, 'fixed mode ignores the percentage');
+  });
+
+  test('22.5', 'Nonsense values cannot inflate a bill', () => {
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '-100' });
+    eq(settingsRepo.serviceChargeFor(500), 0, 'a negative charge is not a discount');
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '1000' });
+    eq(settingsRepo.serviceChargeFor(100), 100, 'a typo of 1000% is clamped to 100%');
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: 'abc' });
+    eq(settingsRepo.serviceChargeFor(500), 0, 'a non-number falls back to nothing');
+  });
+
+  test('22.6', 'A real order picks the charge up from the chosen mode', () => {
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '30' });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Water'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.subtotal, 60, 'one bottle of water');
+    eq(settled.service_charge, 30, 'the flat charge, not a percentage of 60');
+    eq(settled.total, 90, 'and it is on the total');
+  });
+
+  test('22.7', 'The counter QUOTE matches the bill in fixed mode too', () => {
+    // Mirrors ChargeModal in src/app/order/page.tsx, the same way 7.3b does
+    // for percentages. If the two formulas drift, the cashier collects one
+    // number and the bill prints another.
+    const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const preview = (subtotal, rawDiscount, amount) => {
+      const discount = Math.min(Math.max(0, Number(rawDiscount) || 0), subtotal);
+      return Math.max(0, round2(subtotal - discount + Math.max(amount, 0)));
+    };
+
+    for (const [amount, discount] of [
+      [0, 0],
+      [50, 0],
+      [50, 100],
+      [37.5, 33.33],
+      [100, 5000], // discount larger than the bill
+    ]) {
+      settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: String(amount) });
+      const o = orders.openOrder({ type: 'takeaway' });
+      orders.addItems(o.id, [{ menu_item_id: D['Day Biryani'], qty: 2, modifier_ids: [] }]);
+      const subtotal = orders.getOrder(o.id).subtotal;
+      const quoted = preview(subtotal, discount, amount);
+      const settled = orders.settleOrder(o.id, { discount, payment_method: 'cash' });
+      eq(quoted, settled.total, `quote matches bill at flat ${amount} / discount ${discount}`);
+    }
+    settingsRepo.saveSettings({ service_charge_amount: '0' });
+  });
+
+  /* ================= Section 23 — Open day / close day ================= */
+  section('23 — Business day');
+
+  const day = require(path.join(dist, 'db', 'repositories', 'daySessions'));
+
+  test('23.1', 'No day is open to begin with', () => {
+    eq(day.currentSession(), null, 'the shop has not opened');
+    eq(day.currentSessionId(), null, 'so orders carry no session');
+  });
+
+  test('23.2', 'Orders taken with no day open are NOT lost', () => {
+    // The counter must be able to serve regardless of whether the owner
+    // remembered to press Open Day. Such an order simply belongs to no report.
+    const o = orders.openOrder({ type: 'takeaway' });
+    eq(o.session_id, null, 'no session stamped');
+    eq(o.status, 'open', 'but the order is perfectly valid');
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
+  });
+
+  let session1;
+  test('23.3', 'Open Day starts a session', () => {
+    session1 = day.openDay({ opening_float: 2000 });
+    ok(session1.id > 0, 'a session exists');
+    ok(session1.opened_at, 'stamped with the time it opened');
+    eq(session1.closed_at, null, 'and it is still open');
+    eq(session1.opening_float, 2000, 'the float was recorded');
+    eq(day.currentSession().id, session1.id, 'it is the current day');
+  });
+
+  test('23.4', 'Only ONE day can be open at a time', () => {
+    // Two open days would make "which day does this order belong to?"
+    // ambiguous and every figure on both reports wrong.
+    throws(() => day.openDay({ opening_float: 0 }), 'a second day is refused');
+    eq(day.listSessions().filter((d) => !d.closed_at).length, 1, 'still exactly one open');
+  });
+
+  test('23.5', 'Orders taken now are stamped with the open day', () => {
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '0' });
+    const o = orders.openOrder({ type: 'takeaway' });
+    eq(o.session_id, session1.id, 'stamped');
+    orders.addItems(o.id, [{ menu_item_id: D['Day Biryani'], qty: 2, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.subtotal, 800, '2 x 400');
+    eq(settled.session_id, session1.id, 'and the stamp survives settlement');
+  });
+
+  test('23.6', 'GROSS PROFIT is sales MINUS ITEM COST — nothing else', () => {
+    // The label on the slip says "sales - item cost", so the number has to be
+    // exactly that. Folding the service charge or delivery fee in here would
+    // overstate what the kitchen actually earned.
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '75' });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Kebab'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+
+    const r = day.dayReport(session1.id);
+    // Biryani x2: 800 sale, 360 cost -> 440. Kebab: 600 sale, 300 cost -> 300.
+    eq(r.gross_profit, 740, 'item margin only');
+    eq(r.service_charges, 75, 'the service charge is reported separately...');
+    ok(r.sales_total > r.gross_profit, '...and shows up in sales, not in margin');
+    settingsRepo.saveSettings({ service_charge_amount: '0' });
+  });
+
+  test('23.7', 'The report counts only THIS day', () => {
+    // Every order from sections 2-22 was taken before any day was opened.
+    const r = day.dayReport(session1.id);
+    eq(r.order_count, 2, 'two settled orders on this day');
+    eq(r.sales_total, 1475, '800 + 600 + 75 service charge');
+    eq(r.cash_sales, 1475, 'both paid cash');
+    eq(r.card_sales, 0, 'nothing on card');
+  });
+
+  test('23.8', 'Unpaid orders are counted and warned about, not swallowed', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Tikka'], qty: 1, modifier_ids: [] }]);
+    const unpaid = day.unpaidOnSession(session1.id);
+    eq(unpaid.count, 1, 'one order still owing');
+    eq(unpaid.total, 550, 'and how much');
+    const r = day.dayReport(session1.id);
+    eq(r.unpaid_count, 1, 'the report says so too');
+    eq(r.unpaid_total, 550, 'with the money attached');
+    // Unpaid money is NOT counted as sales.
+    eq(r.sales_total, 1475, 'sales unchanged by an unsettled order');
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
+  });
+
+  test('23.9', 'Cancellations are reported against the day', () => {
+    const r = day.dayReport(session1.id);
+    // The void in 23.2 happened before any day was opened, so it belongs to
+    // no report — which is the same rule the sales figures follow.
+    eq(r.cancelled_count, 1, 'only the void taken while this day was open');
+    eq(r.cancelled_value, 550, 'with its value stated');
+  });
+
+  test('23.10', 'Expected cash = float + cash taken', () => {
+    const r = day.dayReport(session1.id);
+    eq(r.expected_cash, 3475, '2000 float + 1475 cash');
+  });
+
+  test('23.11', 'Close Day ends the session', () => {
+    const closed = day.closeDay({});
+    ok(closed.closed_at, 'stamped with the time it closed');
+    eq(day.currentSession(), null, 'nothing is open now');
+    throws(() => day.closeDay({}), 'and closing again is refused');
+  });
+
+  test('23.12', 'A closed day is FROZEN — new orders do not join it', () => {
+    // The whole point of closing: the report the owner printed and acted on
+    // must still say the same thing tomorrow.
+    const before = day.dayReport(session1.id);
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Burger'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(o.session_id, null, 'the new order joins no day');
+    const after = day.dayReport(session1.id);
+    eq(after.sales_total, before.sales_total, 'yesterday total unchanged');
+    eq(after.gross_profit, before.gross_profit, 'and its margin unchanged');
+  });
+
+  test('23.13', 'A second day is a separate report', () => {
+    const session2 = day.openDay({ opening_float: 0 });
+    ok(session2.id !== session1.id, 'a new session');
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Water'], qty: 3, modifier_ids: [] }]);
+    orders.settleOrder(o.id, { payment_method: 'card' });
+
+    const r2 = day.dayReport(session2.id);
+    eq(r2.order_count, 1, 'only today');
+    eq(r2.sales_total, 180, '3 x 60');
+    eq(r2.gross_profit, 90, '3 x (60 - 30)');
+    eq(r2.card_sales, 180, 'paid by card');
+    eq(r2.cash_sales, 0, 'no cash today');
+    eq(r2.expected_cash, null, 'no float was counted, so no figure is invented');
+
+    // And day one is still exactly as it was.
+    eq(day.dayReport(session1.id).sales_total, 1475, 'day one untouched');
+    day.closeDay({});
+  });
+
+  test('23.14', 'The printed report is TEXT, and says gross profit in full', () => {
+    const text = receipt.buildDayReport(day.dayReport(session1.id));
+    ok(typeof text === 'string', 'a string, not an image buffer');
+    ok(
+      text.includes('Gross profit (sales - item cost)'),
+      'labelled in full so it cannot be read as take-home',
+    );
+    ok(text.includes('END OF DAY'), 'titled');
+    ok(text.includes('EXPECTED CASH'), 'the drawer figure a manager counts against');
+    ok(text.includes('Test Food Point'), 'the shop name');
+    for (const line of text.split('\n')) ok(line.length <= 42, 'fits 42 columns: ' + line);
+  });
+
+  test('23.15', 'Voided lines are excluded from margin', () => {
+    const session3 = day.openDay({ opening_float: 0 });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [
+      { menu_item_id: D['Day Biryani'], qty: 1, modifier_ids: [] },
+      { menu_item_id: D['Day Water'], qty: 1, modifier_ids: [] },
+    ]);
+    const drink = orders.getOrder(o.id).items.find((i) => i.item_name === 'Day Water');
+    orders.voidItem(drink.id, { reason_code: 'wrong_item', note: null, staff_id: null });
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+
+    const r = day.dayReport(session3.id);
+    eq(r.gross_profit, 220, 'only the biryani: 400 - 180');
+    ok(!r.top_items.some((t) => t.item_name === 'Day Water'), 'and the void is not a best seller');
+    day.closeDay({});
+  });
+
+  test('23.16', 'The unpaid list gives the counter what it needs', () => {
+    // Feature 1: the chips said WHICH orders were open but not how much or
+    // how long — the two things a counter actually needs to chase money.
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Kebab'], qty: 1, modifier_ids: [] }]);
+    const row = orders.listOpenOrders().find((s) => s.id === o.id);
+    ok(row, 'it appears in the open list');
+    eq(row.subtotal, 600, 'with the money owed');
+    ok(row.opened_at, 'and when it started, so the oldest table can be found');
+    ok(row.order_no, 'and its number');
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+    ok(!orders.listOpenOrders().some((s) => s.id === o.id), 'and it leaves the list once paid');
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

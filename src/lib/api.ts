@@ -5,6 +5,8 @@ import type {
   CancelReasonCode,
   Customer,
   DashboardSummary,
+  DayReport,
+  DaySession,
   Deal,
   ExtraCharge,
   DiningTable,
@@ -117,6 +119,20 @@ export const api = {
     choose: (kind: ImageKind) => call<{ file: string } | null>('images', 'choose', kind),
     importFolder: (kind: ImageKind) =>
       call<{ copied: number; skipped: number }>('images', 'importFolder', kind),
+  },
+
+  day: {
+    current: () =>
+      call<{ session: DaySession; unpaid: { count: number; total: number } } | null>(
+        'day',
+        'current',
+      ),
+    list: () => call<DaySession[]>('day', 'list'),
+    open: (input: { opening_float?: number }) => call<DaySession>('day', 'open', input),
+    close: (input?: { print?: boolean }) =>
+      call<{ report: DayReport; print: PrintOutcome }>('day', 'close', input),
+    report: (id: number) => call<DayReport>('day', 'report', id),
+    print: (id: number) => call<PrintOutcome>('day', 'print', id),
   },
 
   customers: {

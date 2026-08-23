@@ -54,6 +54,35 @@ export function serviceChargePercent(): number {
   return Math.min(Math.max(pct, 0), 100);
 }
 
+/**
+ * The service charge for a bill, in rupees.
+ *
+ * Two modes, because shops split on this: a flat cover charge is the norm at a
+ * small food point, while a percentage suits a sit-down restaurant. Fixed is
+ * the default.
+ *
+ * Computed HERE, in the main process, and never taken from the renderer —
+ * the same rule the percentage always followed. A UI that could supply its own
+ * amount could bill a figure the owner never set.
+ */
+export function serviceChargeFor(subtotal: number): number {
+  const mode = getSetting(SETTING_KEYS.serviceChargeMode) || 'fixed';
+
+  if (mode === 'percent') {
+    const pct = serviceChargePercent();
+    return Math.round(((subtotal * pct) / 100 + Number.EPSILON) * 100) / 100;
+  }
+
+  // Fixed. Clamped at zero: a negative "charge" is a discount, and discounts
+  // have their own field with their own rules.
+  const amount = getNumberSetting(SETTING_KEYS.serviceChargeAmount, 0);
+  return Math.max(amount, 0);
+}
+
+export function serviceChargeMode(): 'fixed' | 'percent' {
+  return getSetting(SETTING_KEYS.serviceChargeMode) === 'percent' ? 'percent' : 'fixed';
+}
+
 export function tablesEnabled(): boolean {
   return getBoolSetting(SETTING_KEYS.enableTables, true);
 }

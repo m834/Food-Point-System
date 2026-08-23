@@ -191,6 +191,8 @@ export interface Order {
   delivery_charge: number;
   /** Packaging and disposables — the sum of `extras`, kept out of subtotal. */
   extras_total: number;
+  /** The business day this order was taken on. Null if none was open. */
+  session_id: number | null;
   /** Where the rider is going. Required for a delivery order. */
   delivery_address: string | null;
   total: number;
@@ -304,6 +306,54 @@ export interface DiningTable {
    */
   open_order_id: number | null;
   running_total: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Business day sessions — Open Day / Close Day
+ * ------------------------------------------------------------------ */
+
+/**
+ * A trading day, bounded by when the owner opens and closes it rather than by
+ * the clock. The shop trades past midnight, so an order settled at 1am belongs
+ * to the night still running, not the morning that has technically begun.
+ */
+export interface DaySession {
+  id: number;
+  opened_at: string;
+  closed_at: string | null;
+  opening_float: number;
+  opened_by: number | null;
+  closed_by: number | null;
+  notes: string | null;
+}
+
+/** Everything the end-of-day report states, computed from one session. */
+export interface DayReport {
+  session: DaySession;
+  order_count: number;
+  by_type: Array<{ type: OrderType; order_count: number; sales: number }>;
+  sales_total: number;
+  /**
+   * Sales minus what the FOOD cost — item level only.
+   *
+   * Deliberately not the stored `orders.profit`, which also folds in the
+   * service charge, delivery fee and packaging. Those are not food margin,
+   * and labelling them as such would overstate what the kitchen earned.
+   */
+  gross_profit: number;
+  service_charges: number;
+  delivery_charges: number;
+  extras_total: number;
+  cancelled_count: number;
+  cancelled_value: number;
+  top_items: Array<{ item_name: string; qty: number; revenue: number }>;
+  cash_sales: number;
+  card_sales: number;
+  /** Only meaningful when an opening float was entered. */
+  expected_cash: number | null;
+  /** Unpaid orders still attached to this session when it closed. */
+  unpaid_count: number;
+  unpaid_total: number;
 }
 
 /* ------------------------------------------------------------------ *
@@ -536,6 +586,13 @@ export const SETTING_KEYS = {
   /** Pre-filled on a delivery order; staff can still change it per order. */
   deliveryCharge: 'delivery_charge',
   /**
+   * 'fixed' or 'percent'. Fixed is the default: most small food points add a
+   * flat cover charge rather than a percentage of the bill.
+   */
+  serviceChargeMode: 'service_charge_mode',
+  /** The rupee amount used when the mode is 'fixed'. */
+  serviceChargeAmount: 'service_charge_amount',
+  /**
    * Filename of the shop logo inside <userData>/upload/logo/.
    * A filename, never a URL — the app must render it with no network.
    */
@@ -557,6 +614,8 @@ export const DEFAULT_SETTINGS: SettingsMap = {
   [SETTING_KEYS.managerPin]: '',
   [SETTING_KEYS.theme]: 'dark',
   [SETTING_KEYS.deliveryCharge]: '0',
+  [SETTING_KEYS.serviceChargeMode]: 'fixed',
+  [SETTING_KEYS.serviceChargeAmount]: '0',
   [SETTING_KEYS.shopLogo]: '',
   [SETTING_KEYS.receiptFooter]: '',
 };

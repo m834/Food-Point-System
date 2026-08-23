@@ -8,6 +8,7 @@ import { ADMIN_HOME, COUNTER_HOME } from '@/lib/areas';
 import {
   IconCancel,
   IconCustomers,
+  IconDay,
   IconDashboard,
   IconDeal,
   IconMenu,
@@ -50,6 +51,7 @@ export function Sidebar() {
     { href: '/customers/', label: strings.nav.customers, icon: <IconCustomers /> },
     { href: '/menu/', label: strings.nav.menu, icon: <IconMenu /> },
     { href: '/deals/', label: strings.nav.deals, icon: <IconDeal /> },
+    { href: '/day/', label: strings.nav.day, icon: <IconDay /> },
     { href: '/settings/', label: strings.nav.settings, icon: <IconSettings /> },
   ];
 

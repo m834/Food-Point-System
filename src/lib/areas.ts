@@ -27,6 +27,7 @@ export const ADMIN_ROUTES = [
   '/reports/', // sales, best sellers, hours
   '/cancellations/', // who cancelled what, and for how much
   '/customers/', // names, numbers and home addresses — the owner's to hold
+  '/day/', // opening and closing the trading day, and its takings and margin
   '/settings/', // printers, staff, PIN, logo, backup, licence
 ] as const;
 

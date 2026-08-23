@@ -4,13 +4,14 @@ import { getItem, getModifiersByIds, getVariant } from './menu';
 import { buildDealLines } from './deals';
 import { openOrderIdForTable } from './tables';
 import { rememberFromOrder } from './customers';
+import { currentSessionId } from './daySessions';
 import {
   extrasCost,
   listOrderExtras,
   recomputeExtrasTotal,
   setOrderExtra,
 } from './extras';
-import { serviceChargePercent } from './settings';
+import { serviceChargeFor } from './settings';
 import type {
   CancelReasonCode,
   NewOrderLine,
@@ -43,7 +44,7 @@ const ORDER_SELECT = `
   SELECT o.id, o.order_no, o.type, o.table_id, t.name AS table_name, o.status,
          o.opened_at, o.settled_at, o.customer_name, o.customer_phone,
          o.subtotal, o.discount, o.service_charge, o.delivery_charge,
-         o.delivery_address, o.extras_total, o.total, o.profit,
+         o.delivery_address, o.extras_total, o.session_id, o.total, o.profit,
          o.payment_method, o.void_reason, o.voided_at,
          o.void_reason_code, o.void_note, o.voided_by_staff_id,
          o.voided_was_paid, s.name AS voided_by_staff_name
@@ -218,8 +219,8 @@ export function openOrder(input: OpenOrderInput): Order {
       .prepare(
         `INSERT INTO orders (order_no, type, table_id, status, opened_at,
                              customer_name, customer_phone,
-                             delivery_address, delivery_charge)
-         VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
+                             delivery_address, delivery_charge, session_id)
+         VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         nextOrderNo(),
@@ -230,6 +231,9 @@ export function openOrder(input: OpenOrderInput): Order {
         input.customer_phone || null,
         isDelivery ? address : null,
         deliveryCharge,
+        // Whichever business day is open. Null when none is — the counter must
+        // still be able to serve, the order simply belongs to no day report.
+        currentSessionId(),
       );
 
     return Number(info.lastInsertRowid);
@@ -631,7 +635,9 @@ export function settleOrder(orderId: number, input: SettleInput): Order {
 
     const discount = money(Math.min(Math.max(input.discount ?? 0, 0), subtotal));
     // Read from settings in the main process — never taken from the renderer.
-    const serviceCharge = money((subtotal * serviceChargePercent()) / 100);
+    // Fixed rupee amount or a percentage, per the owner's setting. Read in
+    // the main process, never supplied by the till.
+    const serviceCharge = money(serviceChargeFor(subtotal));
 
     /**
      * The delivery fee is read from the ORDER, not from the renderer at

@@ -210,3 +210,18 @@ export function IconCustomers({ size = 18 }: Props) {
     </svg>
   );
 }
+
+/**
+ * Open / close day — a sun on the horizon rather than a clock or a calendar.
+ * The trading day this marks is a shift, not a date, and a calendar glyph
+ * would suggest the opposite.
+ */
+export function IconDay({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <path d="M2.8 18.5h18.4" />
+      <path d="M6.6 18.5a5.4 5.4 0 0 1 10.8 0" />
+      <path d="M12 4.2v2.4M4.9 7.1l1.7 1.7M19.1 7.1l-1.7 1.7" />
+    </svg>
+  );
+}

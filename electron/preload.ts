@@ -54,6 +54,15 @@ const api = {
     importFolder: (kind: string) => ipcRenderer.invoke('images:importFolder', kind),
   },
 
+  day: {
+    current: () => ipcRenderer.invoke('day:current'),
+    list: () => ipcRenderer.invoke('day:list'),
+    open: (input: unknown) => ipcRenderer.invoke('day:open', input),
+    close: (input?: unknown) => ipcRenderer.invoke('day:close', input),
+    report: (id: number) => ipcRenderer.invoke('day:report', id),
+    print: (id: number) => ipcRenderer.invoke('day:print', id),
+  },
+
   customers: {
     lookup: (phone: string) => ipcRenderer.invoke('customers:lookup', phone),
     list: (search?: string) => ipcRenderer.invoke('customers:list', search),

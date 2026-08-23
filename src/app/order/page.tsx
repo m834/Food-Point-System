@@ -522,12 +522,15 @@ function OrderWorkspace() {
 
       {/* ----------------------- right: running order ---------------------- */}
       <aside className="order-right">
-        {openOrders.length > 0 ? (
+        {/* The chip strip is the SWITCHER — it only earns its space once an
+            order is on screen to switch away from. With nothing selected the
+            full list below says the same thing and more. */}
+        {order && openOrders.length > 0 ? (
           <div className="open-strip">
             {openOrders.map((summary) => (
               <button
                 key={summary.id}
-                className={`open-chip${order?.id === summary.id ? ' active' : ''}`}
+                className={`open-chip${order.id === summary.id ? ' active' : ''}`}
                 onClick={() => selectOrder(summary.id)}
               >
                 {summary.has_unfired ? <span className="dot" /> : null}
@@ -538,16 +541,59 @@ function OrderWorkspace() {
           </div>
         ) : null}
 
-        {!order ? (
-          <Empty
-            title={strings.order.noOpenOrders}
-            note="Start an order to begin taking items."
-            action={
-              <button className="btn primary big" onClick={() => setStartOpen(true)}>
+        {!order && openOrders.length > 0 ? (
+          /* Unpaid orders — placed but not yet settled.
+             The chips said WHICH orders were open. They did not say how much
+             was owed or how long it had been sitting, which are the two things
+             a counter actually needs in order to chase money, and finding them
+             out meant opening each order in turn. */
+          <div className="unpaid-list">
+            <div className="unpaid-head">
+              <span>{strings.order.unpaidTitle}</span>
+              <span className="num">
+                {openOrders.length} · {money(openOrders.reduce((sum, o) => sum + o.subtotal, 0))}
+              </span>
+            </div>
+            {openOrders.map((summary) => (
+              <button
+                key={summary.id}
+                className="unpaid-row"
+                onClick={() => selectOrder(summary.id)}
+              >
+                <div className="unpaid-row-main">
+                  <div className="unpaid-row-where">
+                    {summary.table_name ?? ORDER_TYPE_LABELS[summary.type]}
+                    {summary.has_unfired ? <span className="dot" /> : null}
+                  </div>
+                  <div className="unpaid-row-meta num">
+                    {summary.order_no} · {since(summary.opened_at)}
+                  </div>
+                </div>
+                <div className="unpaid-row-total num">{money(summary.subtotal)}</div>
+              </button>
+            ))}
+            {/* Starting a new order must stay one tap away — this list
+                replaces the empty state that used to carry the button. */}
+            <div className="unpaid-foot">
+              <button className="btn primary big block" onClick={() => setStartOpen(true)}>
                 {strings.order.startOrder}
               </button>
-            }
-          />
+            </div>
+          </div>
+        ) : null}
+
+        {!order ? (
+          openOrders.length > 0 ? null : (
+            <Empty
+              title={strings.order.noOpenOrders}
+              note="Start an order to begin taking items."
+              action={
+                <button className="btn primary big" onClick={() => setStartOpen(true)}>
+                  {strings.order.startOrder}
+                </button>
+              }
+            />
+          )
         ) : (
           <>
             {/* Which order am I on — never ambiguous. */}
@@ -1196,14 +1242,19 @@ function ChargeModal({
   // the figure the customer is asked for. The backend still recomputes and
   // remains the authority — this only has to agree with it, not replace it.
   const discountValue = Math.min(Math.max(0, Number(discount) || 0), order.subtotal);
+  // Fixed or percentage — clamped and computed exactly as serviceChargeFor()
+  // does in the main process. The backend remains the authority; this only has
+  // to agree with it, or the counter quotes a number the bill contradicts.
+  const chargeMode = settings[SETTING_KEYS.serviceChargeMode] === 'percent' ? 'percent' : 'fixed';
   const chargePercent = Math.min(
     Math.max(Number(settings[SETTING_KEYS.serviceChargePercent]) || 0, 0),
     100,
   );
-  // Service charge is worked out on the gross subtotal, before the discount —
-  // matching settleOrder(), or the counter would quote a number the bill
-  // contradicts.
-  const serviceCharge = round2((order.subtotal * chargePercent) / 100);
+  const chargeAmount = Math.max(Number(settings[SETTING_KEYS.serviceChargeAmount]) || 0, 0);
+  // A percentage is worked out on the GROSS subtotal, before the discount —
+  // matching settleOrder().
+  const serviceCharge =
+    chargeMode === 'percent' ? round2((order.subtotal * chargePercent) / 100) : chargeAmount;
   // Read from the ORDER, exactly as settleOrder does — it was agreed with the
   // customer when the order was taken, not at the till.
   const deliveryCharge = order.type === 'delivery' ? round2(order.delivery_charge ?? 0) : 0;
@@ -1300,7 +1351,8 @@ function ChargeModal({
       {serviceCharge > 0 ? (
         <div className="row-between">
           <span className="muted">
-            {strings.order.serviceCharge} ({chargePercent}%)
+            {strings.order.serviceCharge}
+            {chargeMode === 'percent' ? ` (${chargePercent}%)` : ''}
           </span>
           <span className="num">{money(serviceCharge)}</span>
         </div>

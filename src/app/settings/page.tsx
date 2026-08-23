@@ -48,6 +48,10 @@ export default function SettingsPage() {
   const set = (key: string, value: string) =>
     setValues((current) => ({ ...current, [key]: value }));
 
+  // Anything that is not explicitly 'percent' is fixed — including a blank
+  // value on a shop upgrading into this version, which is the default.
+  const serviceMode = values[SETTING_KEYS.serviceChargeMode] === 'percent' ? 'percent' : 'fixed';
+
   const save = async () => {
     setBusy(true);
     try {
@@ -279,18 +283,54 @@ export default function SettingsPage() {
         {/* --- charges --- */}
         <Card>
           <h2 style={{ marginBottom: 14 }}>{strings.settings.service}</h2>
+          {/*
+            Fixed or percentage. Shops split on this: a flat cover charge is
+            the norm at a small food point, a percentage suits a sit-down
+            restaurant. Fixed is the default, and only the field that applies
+            is shown — two live numbers would leave the owner unsure which one
+            the bill is actually using.
+          */}
+          <Field label={strings.settings.serviceChargeMode} hint={strings.settings.serviceChargeModeHint}>
+            <div className="row" style={{ gap: 0 }}>
+              {(['fixed', 'percent'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`cat-tab${serviceMode === mode ? ' active' : ''}`}
+                  onClick={() => set(SETTING_KEYS.serviceChargeMode, mode)}
+                  style={{ flex: 1 }}
+                >
+                  {mode === 'fixed' ? strings.settings.fixedAmount : strings.settings.percentage}
+                </button>
+              ))}
+            </div>
+          </Field>
+
           <div className="field-row">
-            <Field label={strings.settings.serviceCharge}>
-              <input
-                className="input num"
-                type="number"
-                min={0}
-                max={100}
-                step="0.5"
-                value={values[SETTING_KEYS.serviceChargePercent] ?? '0'}
-                onChange={(event) => set(SETTING_KEYS.serviceChargePercent, event.target.value)}
-              />
-            </Field>
+            {serviceMode === 'percent' ? (
+              <Field label={strings.settings.serviceCharge}>
+                <input
+                  className="input num"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.5"
+                  value={values[SETTING_KEYS.serviceChargePercent] ?? '0'}
+                  onChange={(event) => set(SETTING_KEYS.serviceChargePercent, event.target.value)}
+                />
+              </Field>
+            ) : (
+              <Field label={strings.settings.serviceChargeAmount}>
+                <input
+                  className="input num"
+                  type="number"
+                  min={0}
+                  step="1"
+                  value={values[SETTING_KEYS.serviceChargeAmount] ?? '0'}
+                  onChange={(event) => set(SETTING_KEYS.serviceChargeAmount, event.target.value)}
+                />
+              </Field>
+            )}
             <Field label={strings.settings.currency}>
               <input
                 className="input"

@@ -24,6 +24,7 @@ export const strings = {
     reports: 'Reports',
     cancellations: 'Cancellations',
     customers: 'Customers',
+    day: 'Open / close day',
     sales: 'Sales',
     settings: 'Settings',
   },
@@ -277,6 +278,7 @@ export const strings = {
     deliveryAddressHint: 'Required — the rider needs somewhere to go.',
     deliveryAddressPlaceholder: 'House / street / area',
     deliveryCharge: 'Delivery charge',
+    unpaidTitle: 'Unpaid orders',
     phoneLookupHint: 'Type a saved number to fill in the name and address.',
     deliveryNeedsAddress: 'Enter the delivery address before starting the order.',
     customerName: 'Customer name',
@@ -399,6 +401,11 @@ export const strings = {
     enableTablesHint: 'Turn this off for a pure takeaway counter — the Tables screen disappears.',
     security: 'Voids',
     managerPin: 'Manager PIN',
+    serviceChargeMode: 'Service charge',
+    serviceChargeModeHint: 'A flat amount per bill, or a percentage of it.',
+    fixedAmount: 'Fixed amount',
+    percentage: 'Percentage',
+    serviceChargeAmount: 'Amount per bill',
     deliveryCharge: 'Default delivery charge',
     deliveryChargeHint: 'Pre-filled on a delivery order. Staff can change it per order.',
     slip: 'Receipt slip',
@@ -437,6 +444,54 @@ export const strings = {
     activate: 'Activate',
     activating: 'Checking…',
     success: 'Activated. Opening the app…',
+  },
+
+  /**
+   * Open Day / Close Day.
+   *
+   * "Day" here means the trading session, not the calendar date — the shop
+   * serves past midnight, so the wording avoids "today" everywhere.
+   */
+  day: {
+    title: 'Open / close day',
+    subtitle: 'Start the trading day, and close it with a report of what was taken.',
+    openDay: 'Open day',
+    closeDay: 'Close day',
+    dayOpen: 'Day open since',
+    noDayOpen: 'No day is open',
+    noDayOpenNote:
+      'Orders can still be taken, but they will not appear on any day report until a day is opened.',
+    float: 'Opening cash',
+    floatHint: 'What is in the drawer before trading starts. Leave blank if you do not count it.',
+    unpaidNow: 'Unpaid so far',
+    past: 'Previous days',
+    noHistory: 'No days have been closed yet',
+    opened: 'Opened',
+    closed: 'Closed',
+    stillOpen: 'Open now',
+    viewReport: 'Report',
+    print: 'Print',
+    printed: 'Report sent to the printer.',
+    opened_: 'Day opened.',
+    closed_: 'Day closed. Report sent to the printer.',
+    closeAndPrint: 'Close day and print',
+    closeAnyway: 'Close day anyway',
+    closeHint: 'The day will be closed and the end-of-day report printed.',
+    unpaidWarning: (count: number, total: string) =>
+      `${count} order${count === 1 ? '' : 's'} worth ${total} ${count === 1 ? 'has' : 'have'} not been paid. ` +
+      'Closing now leaves that money off the report. Settle them first if you can.',
+    report: 'End of day report',
+    sales: 'Sales',
+    grossProfit: 'Gross profit (sales − item cost)',
+    orders: 'Orders',
+    cancelled: 'Cancelled',
+    serviceCharges: 'Service charges',
+    deliveryCharges: 'Delivery charges',
+    cash: 'Cash',
+    card: 'Card',
+    expectedCash: 'Cash expected in drawer',
+    unpaidAtClose: 'Unpaid at close',
+    topItems: 'Best sellers',
   },
 
   common: {

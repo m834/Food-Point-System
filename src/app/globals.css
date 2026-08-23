@@ -23,6 +23,12 @@
    │       --danger       void / delete / stop                         │
    │       --canvas       the light workspace paper                    │
    │                                                                   │
+   │     When writing one of the semantic colours as WORDS rather than │
+   │     as a fill, use --success-text / --warning-text instead of the │
+   │     raw token. Both are derived from it; the light theme darkens  │
+   │     them, because full-saturation amber and green are legible as  │
+   │     a block on white but not as small text on it.                 │
+   │                                                                   │
    │  2. LOGO — replace ONE file: public/logo.png                      │
    │     It is referenced from a single place (components/Sidebar.tsx  │
    │     and components/Activation.tsx both read /logo.png). Drop in   │
@@ -142,6 +148,14 @@
   --danger-soft: color-mix(in srgb, var(--danger) 22%, rgb(var(--panel-rgb)));
   --brand-tint: color-mix(in srgb, var(--brand-soft) 30%, rgb(var(--panel-rgb)));
 
+  /* Semantic colours as TEXT on a page surface, which is a different job from
+     using them as a fill. On the dark theme the lifted --warning / --success
+     already read cleanly against the panel, so these pass straight through;
+     the light theme has to darken them, and does so below. Anything that
+     writes a semantic colour as words uses these rather than the raw token. */
+  --warning-text: var(--warning);
+  --success-text: var(--success);
+
 
   /* ---- Dark register (sidebar, dashboard, activation) ---- */
   --on-dark: color-mix(in srgb, #fff 94%, var(--brand-soft));
@@ -235,6 +249,13 @@
   --success-soft: color-mix(in srgb, var(--success) 12%, #fff);
   --warning-soft: color-mix(in srgb, var(--warning) 14%, #fff);
   --danger-soft: color-mix(in srgb, var(--danger) 10%, #fff);
+
+  /* Amber and green at full saturation are legible as a FILL on white but not
+     as small text on it — roughly 2:1 against the page, which is the shape of
+     the dark-on-dark bugs this theme has had before. Darkened here, exactly as
+     .badge.warning and .notice.warn already are. */
+  --warning-text: color-mix(in srgb, var(--warning) 78%, black);
+  --success-text: color-mix(in srgb, var(--success) 80%, black);
 
   --shadow-sm: 0 1px 2px rgb(var(--brand-deep-rgb) / 0.07);
   --shadow-md: 0 4px 14px rgb(var(--brand-deep-rgb) / 0.08);
@@ -1805,6 +1826,115 @@ table.data tbody tr:last-child td {
   flex: 0 0 auto;
 }
 
+/* ------------------------------------------------------------------ *
+ * Unpaid orders — the money still sitting on tables
+ *
+ * The chip strip above says WHICH orders are open; it does not say how much
+ * or how long. That is the counter's actual question at a busy moment, and
+ * answering it took opening each order in turn. This list is shown only when
+ * nothing is selected, so the running order never loses room to it.
+ *
+ * Deliberately plain: this is a data surface read all day, so it stays in the
+ * CALM register — no glass, no gradient behind a price column.
+ * ------------------------------------------------------------------ */
+
+.unpaid-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.unpaid-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* The total is the number being scanned for, so it is not muted. */
+.unpaid-head .num {
+  color: var(--warning-text);
+  letter-spacing: 0;
+  font-size: 13px;
+}
+
+.unpaid-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t) var(--ease), border-color var(--t) var(--ease);
+}
+
+.unpaid-row:hover {
+  background: var(--surface-sunken);
+  border-left-color: var(--accent);
+}
+
+.unpaid-row-main {
+  min-width: 0;
+}
+
+.unpaid-row-where {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.unpaid-row-meta {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.unpaid-row-total {
+  font-size: 15px;
+  font-weight: 650;
+  flex: 0 0 auto;
+}
+
+.unpaid-foot {
+  padding: 16px;
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+/* Same meaning as on the chip: items not yet sent to the kitchen. */
+.unpaid-row .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
 .order-header {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
@@ -3081,6 +3211,8 @@ table.data tbody tr:last-child td {
     --border: #999;
     --border-strong: #666;
     --success: #000;
+    --warning-text: #000;
+    --success-text: #000;
     --accent: #000;
     --accent-2: #000;
     --brand-deep: #000;

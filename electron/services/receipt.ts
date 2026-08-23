@@ -1,6 +1,12 @@
 import { getAllSettings } from '../db/repositories/settings';
 import { groupOrderLines, isDealGroup } from '../../shared/dealLines';
-import { SETTING_KEYS, ORDER_TYPE_LABELS, type Order, type OrderItem } from '../../shared/types';
+import {
+  SETTING_KEYS,
+  ORDER_TYPE_LABELS,
+  type DayReport,
+  type Order,
+  type OrderItem,
+} from '../../shared/types';
 
 /**
  * The two print formats (spec §10).
@@ -274,6 +280,88 @@ export function buildKitchenTicket(order: Order, fired: OrderItem[]): string {
   }
 
   out.push(line());
+  out.push('');
+
+  return out.join('\n');
+}
+
+/* ------------------------------------------------------------------ *
+ * End-of-day report — the third print format
+ * ------------------------------------------------------------------ */
+
+/**
+ * The close-of-day slip.
+ *
+ * Plain text on the same 42-column roll as the bill, deliberately: it uses the
+ * existing ESC/POS text path, so nothing about image printing is involved and
+ * the owner can tear it off and put it in a drawer with the cash.
+ *
+ * Ordered the way an owner reads it — what came in, what it cost, what is
+ * missing — rather than the order the database happens to hold it.
+ */
+export function buildDayReport(report: DayReport): string {
+  const settings = getAllSettings();
+  const symbol = settings[SETTING_KEYS.currencySymbol] || 'Rs.';
+  const out: string[] = [];
+
+  out.push(line('='));
+  out.push(centre(settings[SETTING_KEYS.businessName] || 'Food Point'));
+  out.push(centre('END OF DAY'));
+  out.push(line('='));
+
+  out.push(row('Opened', report.session.opened_at));
+  out.push(row('Closed', report.session.closed_at ?? '—'));
+  out.push(line());
+
+  out.push(row('Orders', String(report.order_count)));
+  for (const entry of report.by_type) {
+    out.push(row(`  ${ORDER_TYPE_LABELS[entry.type]}`, `${entry.order_count}  ${money(entry.sales, symbol)}`));
+  }
+  out.push(line());
+
+  out.push(row('TOTAL SALES', money(report.sales_total, symbol)));
+  // Spelled out in full, because "profit" alone would be read as take-home.
+  out.push('Gross profit (sales - item cost)');
+  out.push(row('', money(report.gross_profit, symbol)));
+  out.push(line());
+
+  if (report.service_charges) out.push(row('Service charges', money(report.service_charges, symbol)));
+  if (report.delivery_charges) out.push(row('Delivery charges', money(report.delivery_charges, symbol)));
+  if (report.extras_total) out.push(row('Extras / packaging', money(report.extras_total, symbol)));
+
+  out.push(row('Cash', money(report.cash_sales, symbol)));
+  out.push(row('Card', money(report.card_sales, symbol)));
+
+  if (report.expected_cash !== null) {
+    out.push(line());
+    out.push(row('Opening float', money(report.session.opening_float, symbol)));
+    out.push(row('EXPECTED CASH', money(report.expected_cash, symbol)));
+  }
+
+  out.push(line());
+  out.push(row('Cancellations', String(report.cancelled_count)));
+  if (report.cancelled_count) {
+    out.push(row('  value', money(report.cancelled_value, symbol)));
+  }
+
+  // Stated even at zero: an owner closing over unpaid orders should see it on
+  // the slip, not only in the dialog they clicked past.
+  if (report.unpaid_count) {
+    out.push(row('UNPAID AT CLOSE', String(report.unpaid_count)));
+    out.push(row('  value', money(report.unpaid_total, symbol)));
+  }
+
+  if (report.top_items.length) {
+    out.push(line());
+    out.push('Top items');
+    for (const item of report.top_items) {
+      out.push(row(`  ${trimQty(item.qty)} x ${item.item_name}`, money(item.revenue, symbol)));
+    }
+  }
+
+  out.push(line('='));
+  out.push('');
+  out.push(centre(DEVELOPER_CREDIT));
   out.push('');
 
   return out.join('\n');

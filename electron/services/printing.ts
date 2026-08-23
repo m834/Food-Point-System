@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getAllSettings, kitchenPrintEnabled } from '../db/repositories/settings';
-import { buildCustomerBill, buildKitchenTicket } from './receipt';
+import { buildCustomerBill, buildDayReport, buildKitchenTicket } from './receipt';
 import { logoRasterBytes } from './receiptLogo';
-import { SETTING_KEYS, type Order, type OrderItem } from '../../shared/types';
+import { SETTING_KEYS, type DayReport, type Order, type OrderItem } from '../../shared/types';
 
 /**
  * Thermal printing (spec §10). Fully offline — the printer is attached to this
@@ -419,6 +419,25 @@ export async function printKitchenTicket(order: Order, fired: OrderItem[]): Prom
     return {
       printed: false,
       warning: `The items were fired, but the kitchen ticket did not print: ${describe(error)}`,
+    };
+  }
+}
+
+/**
+ * Print the end-of-day slip.
+ *
+ * Goes to the counter printer over the SAME text path as a bill — no image or
+ * raster involved. A failed print must not undo the close: the day is already
+ * closed and the figures are already saved, so this reports rather than throws.
+ */
+export async function printDayReport(report: DayReport): Promise<PrintOutcome> {
+  try {
+    await sendToPrinter(buildDayReport(report), customerPrinter());
+    return { printed: true };
+  } catch (error) {
+    return {
+      printed: false,
+      warning: `The day is closed, but the report did not print: ${describe(error)}`,
     };
   }
 }

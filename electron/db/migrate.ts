@@ -210,6 +210,21 @@ CREATE TABLE IF NOT EXISTS customers (
 -- Every lookup is by phone, on every takeaway and delivery order.
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 
+CREATE TABLE IF NOT EXISTS day_sessions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  opened_at    TEXT    NOT NULL,
+  closed_at    TEXT,
+  -- Cash in the drawer at open, so close can state what should be there.
+  opening_float REAL   NOT NULL DEFAULT 0,
+  -- Who opened and closed it, when a staff roster is in use.
+  opened_by    INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+  closed_by    INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+  notes        TEXT
+);
+
+-- "Is a day open?" is asked on every order, so it must not scan.
+CREATE INDEX IF NOT EXISTS idx_day_sessions_open ON day_sessions(closed_at);
+
 CREATE TABLE IF NOT EXISTS staff (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,
@@ -339,6 +354,43 @@ export function migrate(): void {
    * sold apart from what the packaging brought in.
    */
   addColumn('orders', 'extras_total', 'REAL NOT NULL DEFAULT 0');
+
+  /* ---- Business day sessions --------------------------------------------
+   * The shop trades past midnight, so a calendar date is the wrong unit: an
+   * order settled at 1am belongs to the night that is still running, not to
+   * the morning that has technically begun. Every order is stamped with the
+   * session open at the time it was placed, and the end-of-day report reads
+   * that stamp rather than date(settled_at).
+   *
+   * Nullable on purpose: orders taken before this feature existed, and orders
+   * taken while no day is open, simply carry no session. Neither is an error.
+   */
+  addColumn('orders', 'session_id', 'INTEGER REFERENCES day_sessions(id) ON DELETE SET NULL');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_session ON orders(session_id, status)');
+
+  /* ---- Service charge mode: don't change a live shop's bills -------------
+   * The new default is 'fixed', which is right for a new install. But a shop
+   * already running this app may have a percentage configured, and seeding
+   * 'fixed' would silently drop their service charge to zero — a live billing
+   * change nobody asked for, discovered at the till.
+   *
+   * So before the defaults are seeded, a database that has never seen this
+   * key AND already charges a percentage gets 'percent' written in. That is
+   * exactly the set of databases the new default would have broken, and it
+   * happens once ever: from the next launch the row exists, so the seed below
+   * ignores it and an owner who chooses 'fixed' is never overruled.
+   */
+  const hasMode = db
+    .prepare("SELECT 1 FROM settings WHERE key = 'service_charge_mode'")
+    .get() as unknown;
+  if (!hasMode) {
+    const pct = db
+      .prepare("SELECT value FROM settings WHERE key = 'service_charge_percent'")
+      .get() as { value: string } | undefined;
+    if (Number(pct?.value ?? 0) > 0) {
+      db.prepare("INSERT INTO settings (key, value) VALUES ('service_charge_mode', 'percent')").run();
+    }
+  }
 
   // Seed any setting the build knows about but this database has not seen yet,
   // so a new key added in a later version arrives with a sane default rather
