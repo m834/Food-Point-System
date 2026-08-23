@@ -1,4 +1,4 @@
-import { getAllSettings } from '../db/repositories/settings';
+import { getAllSettings, serviceChargeFor } from '../db/repositories/settings';
 import { groupOrderLines, isDealGroup } from '../../shared/dealLines';
 import {
   SETTING_KEYS,
@@ -122,6 +122,18 @@ export function buildCustomerBill(order: Order): string {
     }
   }
 
+  /**
+   * An UNPAID order can be printed too — that is how a customer is handed
+   * what they owe. It must never be mistakable for a receipt, so it is
+   * banner-lined at the top, totalled as AMOUNT DUE rather than TOTAL, and
+   * closes by asking for payment instead of thanking them for it.
+   */
+  const unpaid = order.status === 'open';
+  if (unpaid) {
+    out.push('');
+    out.push(centre('*** UNPAID — NOT A RECEIPT ***'));
+  }
+
   if (order.customer_name) out.push(`Customer: ${order.customer_name}`);
   if (order.customer_phone) out.push(`Phone: ${order.customer_phone}`);
   out.push(line());
@@ -173,9 +185,25 @@ export function buildCustomerBill(order: Order): string {
   }
 
   out.push(line());
-  out.push(row('Subtotal', money(order.subtotal, symbol)));
+
+  // On an unpaid order the money columns have not been written yet, so the
+  // stored service charge and total are both 0. Compute them the same way
+  // settlement will, or the slip hands the customer a bill for nothing.
+  const liveLines = order.items.filter((it) => it.kitchen_status !== 'void');
+  const subtotal = unpaid
+    ? Math.round((liveLines.reduce((sum, it) => sum + it.line_total, 0) + Number.EPSILON) * 100) / 100
+    : order.subtotal;
+  const serviceCharge = unpaid ? serviceChargeFor(subtotal) : order.service_charge;
+  const total = unpaid
+    ? Math.round(
+        (subtotal + serviceCharge + (order.delivery_charge ?? 0) + (order.extras_total ?? 0) +
+          Number.EPSILON) * 100,
+      ) / 100
+    : order.total;
+
+  out.push(row('Subtotal', money(subtotal, symbol)));
   if (order.discount) out.push(row('Discount', `-${money(order.discount, symbol)}`));
-  if (order.service_charge) out.push(row('Service charge', money(order.service_charge, symbol)));
+  if (serviceCharge) out.push(row('Service charge', money(serviceCharge, symbol)));
 
   /**
    * Each extra on its own line, named.
@@ -194,12 +222,12 @@ export function buildCustomerBill(order: Order): string {
     out.push(row('Delivery', money(order.delivery_charge, symbol)));
   }
   out.push(line('='));
-  out.push(row('TOTAL', money(order.total, symbol)));
+  out.push(row(unpaid ? 'AMOUNT DUE' : 'TOTAL', money(total, symbol)));
   if (order.payment_method) {
     out.push(row('Paid by', order.payment_method === 'cash' ? 'Cash' : 'Card'));
   }
   out.push('');
-  out.push(centre('Thank you — please come again'));
+  out.push(centre(unpaid ? 'Please pay at the counter' : 'Thank you — please come again'));
 
   // The shop's own closing line: return policy, wifi password, whatever they
   // want on every bill. Wrapped, because owners type more than fits.
@@ -321,8 +349,12 @@ export function buildDayReport(report: DayReport): string {
 
   out.push(row('TOTAL SALES', money(report.sales_total, symbol)));
   // Spelled out in full, because "profit" alone would be read as take-home.
-  out.push('Gross profit (sales - item cost)');
-  out.push(row('', money(report.gross_profit, symbol)));
+  // Absent entirely on a counter's copy: margin is the owner's number, and a
+  // slip that carries it is a slip anyone in the shop can pick up.
+  if (report.gross_profit !== null) {
+    out.push('Gross profit (sales - item cost)');
+    out.push(row('', money(report.gross_profit, symbol)));
+  }
   out.push(line());
 
   if (report.service_charges) out.push(row('Service charges', money(report.service_charges, symbol)));

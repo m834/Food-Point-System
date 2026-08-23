@@ -42,6 +42,7 @@ export function Sidebar() {
     { href: '/order/', label: strings.nav.newOrder, icon: <IconOrder /> },
     { href: '/orders/', label: strings.nav.orders, icon: <IconReceipt /> },
     ...(tablesEnabled ? [{ href: '/tables/', label: strings.nav.tables, icon: <IconTables /> }] : []),
+    { href: '/day/', label: strings.nav.day, icon: <IconDay /> },
   ];
 
   const adminLinks = [

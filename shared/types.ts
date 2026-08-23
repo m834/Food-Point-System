@@ -339,8 +339,13 @@ export interface DayReport {
    * Deliberately not the stored `orders.profit`, which also folds in the
    * service charge, delivery fee and packaging. Those are not food margin,
    * and labelling them as such would overstate what the kitchen earned.
+   *
+   * NULL when the report was requested by the counter rather than the owner.
+   * Counter staff open and close the day and count the drawer against it, but
+   * margin is the owner's number — so the main process strips it rather than
+   * relying on a screen to hide it.
    */
-  gross_profit: number;
+  gross_profit: number | null;
   service_charges: number;
   delivery_charges: number;
   extras_total: number;
@@ -354,6 +359,16 @@ export interface DayReport {
   /** Unpaid orders still attached to this session when it closed. */
   unpaid_count: number;
   unpaid_total: number;
+}
+
+/**
+ * An unpaid order, with what it owes right now.
+ *
+ * `total` is 0 on an open order — the money is fixed at the till. `amount_due`
+ * is that figure computed live, by the same formula settlement uses.
+ */
+export interface UnpaidOrder extends Order {
+  amount_due: number;
 }
 
 /* ------------------------------------------------------------------ *

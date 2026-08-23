@@ -231,10 +231,21 @@ export const strings = {
 
   orders: {
     title: 'Orders',
-    subtitle: 'Every order that has been paid or voided.',
+    subtitle: 'Every order that has been paid, voided, or is still owing.',
     all: 'All',
     settled: 'Paid',
     voided: 'Voided',
+    unpaid: 'Unpaid',
+    unpaidNote:
+      'Every order still owing, oldest first — not limited to the dates above, because an order left unpaid on Monday is still unpaid on Friday.',
+    unpaidEmptyTitle: 'Nothing is owing',
+    unpaidEmptyNote: 'Every order that has been placed has been paid for.',
+    owing: 'Owing',
+    age: 'Waiting',
+    printUnpaid: 'Print unpaid slip',
+    unpaidSlipNote:
+      'Prints what this order owes, marked UNPAID so it cannot be mistaken for a receipt.',
+    goToOrder: 'Open at the till',
     orderNo: 'Order',
     type: 'Type',
     when: 'When',
@@ -278,7 +289,6 @@ export const strings = {
     deliveryAddressHint: 'Required — the rider needs somewhere to go.',
     deliveryAddressPlaceholder: 'House / street / area',
     deliveryCharge: 'Delivery charge',
-    unpaidTitle: 'Unpaid orders',
     phoneLookupHint: 'Type a saved number to fill in the name and address.',
     deliveryNeedsAddress: 'Enter the delivery address before starting the order.',
     customerName: 'Customer name',

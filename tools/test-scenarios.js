@@ -528,8 +528,17 @@ app.whenReady().then(async () => {
     ok(!/total/i.test(ticket), 'no total');
     ok(!/\d+\.\d{2}/.test(ticket), 'no decimal money figures');
     // Prices from the seeded menu must not leak in any form.
+    //
+    // The HH:MM clock line is dropped first. It is not a price, and leaving it
+    // in made this assertion depend on what time the suite ran: at 18:50 the
+    // ticket contains "18:50" and \b50\b matches it, failing a test about
+    // money for reasons that have nothing to do with money.
+    const noClock = ticket
+      .split('\n')
+      .filter((l) => !/^\d{2}:\d{2}$/.test(l.trim()))
+      .join('\n');
     for (const p of ['400', '350', '80', '550', '60', '50']) {
-      ok(!new RegExp(`\\b${p}\\b`).test(ticket), `price ${p} absent from ticket`);
+      ok(!new RegExp(`\\b${p}\\b`).test(noClock), `price ${p} absent from ticket`);
     }
   });
 
@@ -3073,18 +3082,127 @@ app.whenReady().then(async () => {
     day.closeDay({});
   });
 
-  test('23.16', 'The unpaid list gives the counter what it needs', () => {
-    // Feature 1: the chips said WHICH orders were open but not how much or
-    // how long — the two things a counter actually needs to chase money.
+  test('23.16', 'The counter can open and close the day; MARGIN stays the owner\'s', () => {
+    // Opening and closing is counter work — the owner is not at the till at
+    // 11am. What must not travel with it is the margin.
+    const s4 = day.openDay({ opening_float: 0 });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Biryani'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+    day.closeDay({});
+
+    const dayIpc = require(path.join(dist, 'ipc', 'day'));
+
+    adminSession.lockAdmin();
+    const counterCopy = dayIpc.reportFor(s4.id);
+    eq(counterCopy.gross_profit, null, 'the counter is told nothing about margin');
+    eq(counterCopy.sales_total, 400, 'but sees the takings, which it must count against');
+    eq(counterCopy.expected_cash, null, 'no float was entered');
+    ok(!receipt.buildDayReport(counterCopy).includes('Gross profit'),
+      'and the slip it prints does not carry it either');
+
+    if (!managerPin.isPinSet()) managerPin.setPin('1234');
+    adminSession.unlockAdmin('1234');
+    const ownerCopy = dayIpc.reportFor(s4.id);
+    eq(ownerCopy.gross_profit, 220, 'the owner sees 400 - 180');
+    ok(receipt.buildDayReport(ownerCopy).includes('Gross profit (sales - item cost)'),
+      'labelled in full on the owner\'s slip');
+    adminSession.lockAdmin();
+  });
+
+  /* ================= Section 24 — Unpaid orders ================= */
+  section('24 — Unpaid orders');
+
+  test('24.1', 'The unpaid list carries what it takes to chase the money', () => {
     const o = orders.openOrder({ type: 'takeaway' });
     orders.addItems(o.id, [{ menu_item_id: D['Day Kebab'], qty: 1, modifier_ids: [] }]);
-    const row = orders.listOpenOrders().find((s) => s.id === o.id);
-    ok(row, 'it appears in the open list');
-    eq(row.subtotal, 600, 'with the money owed');
+    const row = orders.listUnpaidOrders().find((u) => u.id === o.id);
+    ok(row, 'it appears in the unpaid list');
+    eq(row.amount_due, 600, 'with what is owed');
     ok(row.opened_at, 'and when it started, so the oldest table can be found');
     ok(row.order_no, 'and its number');
+    ok(row.items.length === 1, 'and its lines, so it can be checked before printing');
     orders.settleOrder(o.id, { payment_method: 'cash' });
-    ok(!orders.listOpenOrders().some((s) => s.id === o.id), 'and it leaves the list once paid');
+    ok(!orders.listUnpaidOrders().some((u) => u.id === o.id), 'and it leaves once paid');
+  });
+
+  test('24.2', 'AMOUNT DUE includes the service charge, delivery and extras', () => {
+    // orders.total is 0 until settlement, so a screen that read it would show
+    // the customer a bill for nothing.
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '40' });
+    const o = orders.openOrder({
+      type: 'delivery',
+      delivery_address: 'House 3, Model Town',
+      delivery_charge: 150,
+    });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Tikka'], qty: 2, modifier_ids: [] }]);
+
+    const row = orders.listUnpaidOrders().find((u) => u.id === o.id);
+    eq(row.total, 0, 'the stored total really is still zero');
+    eq(row.amount_due, 1290, '1100 food + 40 service + 150 delivery');
+
+    // And settling charges exactly what was quoted.
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    eq(settled.total, 1290, 'the till charges what the list said');
+    settingsRepo.saveSettings({ service_charge_amount: '0' });
+  });
+
+  test('24.3', 'The unpaid slip can NEVER be mistaken for a receipt', () => {
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '25' });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Burger'], qty: 2, modifier_ids: [] }]);
+    const slip = receipt.buildCustomerBill(orders.getOrder(o.id));
+
+    ok(slip.includes('*** UNPAID — NOT A RECEIPT ***'), 'banner at the top');
+    ok(slip.includes('AMOUNT DUE'), 'totalled as a debt');
+    ok(!slip.includes('TOTAL '), 'and NOT as a paid total');
+    ok(slip.includes('Please pay at the counter'), 'closes by asking for the money');
+    ok(!slip.includes('Thank you'), 'never thanks them for money not yet taken');
+    // Read the symbol rather than hard-coding it — earlier sections change it,
+    // and this test is about the WORDS on the slip, not the currency.
+    const sym = settingsRepo.currencySymbol().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    ok(new RegExp(`Service charge\\s+${sym}25\\.00`).test(slip), 'the live service charge is on it');
+    ok(new RegExp(`AMOUNT DUE\\s+${sym}725\\.00`).test(slip), '700 food + 25 service');
+    for (const l of slip.split('\n')) ok(l.length <= 42, 'fits a 42-col roll: ' + l);
+
+    // Once paid, the very same builder produces a normal receipt.
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const paid = receipt.buildCustomerBill(settled);
+    ok(!paid.includes('UNPAID'), 'no banner on a paid bill');
+    ok(paid.includes('Thank you'), 'and the thank-you is back');
+    ok(new RegExp(`TOTAL\\s+${sym}725\\.00`).test(paid), 'totalled as TOTAL');
+    settingsRepo.saveSettings({ service_charge_amount: '0' });
+  });
+
+  test('24.4', 'The unpaid list is NOT limited to today', () => {
+    // The whole point: an order left owing on Monday is still owing on Friday,
+    // and a date filter would hide exactly the money being chased.
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Water']  , qty: 1, modifier_ids: [] }]);
+    getDb().prepare("UPDATE orders SET opened_at = '2020-01-01 12:00:00' WHERE id = ?").run(o.id);
+
+    ok(orders.listUnpaidOrders().some((u) => u.id === o.id), 'a five-year-old debt still shows');
+    // The dated history, by contrast, correctly does not carry open orders.
+    const today = todayIso();
+    ok(!orders.listOrders(today, today).some((h) => h.id === o.id), 'history excludes open orders');
+
+    // Oldest first, so the longest-waiting table is at the top.
+    eq(orders.listUnpaidOrders()[0].id, o.id, 'and it sorts to the top');
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
+  });
+
+  test('24.5', 'Voided lines are not billed on an unpaid slip', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [
+      { menu_item_id: D['Day Biryani'], qty: 1, modifier_ids: [] },
+      { menu_item_id: D['Day Water'], qty: 1, modifier_ids: [] },
+    ]);
+    const water = orders.getOrder(o.id).items.find((i) => i.item_name === 'Day Water');
+    orders.voidItem(water.id, { reason_code: 'wrong_item', note: null, staff_id: null });
+
+    const row = orders.listUnpaidOrders().find((u) => u.id === o.id);
+    eq(row.amount_due, 400, 'only the biryani is owed');
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

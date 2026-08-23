@@ -17,9 +17,14 @@ import { ORDER_TYPE_LABELS, type DayReport, type DaySession } from '../../../sha
  * runs from when the owner opens it to when they close it, and every order
  * taken in between is stamped with it.
  *
- * Admin-only, and not just by hiding the link: every `day:*` channel calls
- * requireAdmin(). Deciding which figures land in which day, and reading the
- * day's margin, is the owner's business.
+ * Open to the COUNTER as well as the owner. The owner is not standing at the
+ * till at 11am to press a button before the first order, and a day nobody
+ * opened is a day whose orders belong to no report.
+ *
+ * The margin is the part that stays the owner's: `gross_profit` arrives null
+ * unless an admin session is live, stripped in the main process rather than
+ * hidden by this screen, so a counter's report and a counter's printed slip
+ * both simply do not carry it.
  */
 export default function DayPage() {
   const { toast } = useApp();
@@ -327,8 +332,12 @@ function ReportModal({ report, onClose }: { report: DayReport; onClose: () => vo
     >
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         <Stat label={strings.day.sales} value={money(report.sales_total)} />
-        {/* Spelled out, because "profit" alone reads as take-home. */}
-        <Stat label={strings.day.grossProfit} value={money(report.gross_profit)} profit />
+        {/* Null for the counter — see the note at the top of this file.
+            Spelled out for the owner, because "profit" alone reads as
+            take-home. */}
+        {report.gross_profit !== null ? (
+          <Stat label={strings.day.grossProfit} value={money(report.gross_profit)} profit />
+        ) : null}
         <Stat label={strings.day.orders} value={String(report.order_count)} tone="b" />
         <Stat
           label={strings.day.cancelled}

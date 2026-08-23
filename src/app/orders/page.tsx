@@ -7,8 +7,8 @@ import { Badge, Card, Empty, Field, Modal, Notice } from '@/components/ui';
 import { IconPrint } from '@/components/icons';
 import { api } from '@/lib/api';
 import { strings } from '@/lib/strings';
-import { dateTime, money, qty, todayIso, daysAgoIso } from '@/lib/format';
-import { ORDER_TYPE_LABELS, type Order } from '../../../shared/types';
+import { dateTime, money, qty, since, todayIso, daysAgoIso } from '@/lib/format';
+import { ORDER_TYPE_LABELS, type Order, type UnpaidOrder } from '../../../shared/types';
 
 /**
  * The order history.
@@ -23,7 +23,7 @@ export default function OrdersPage() {
 
   const [from, setFrom] = useState(todayIso());
   const [to, setTo] = useState(todayIso());
-  const [status, setStatus] = useState<'all' | 'settled' | 'void'>('all');
+  const [status, setStatus] = useState<'all' | 'settled' | 'void' | 'unpaid'>('all');
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [printingId, setPrintingId] = useState<number | null>(null);
@@ -32,7 +32,14 @@ export default function OrdersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setOrders(await api.orders.list(from, to, status === 'all' ? undefined : status));
+      // Unpaid deliberately ignores the date range. An order left owing on
+      // Monday is still owing on Friday, and filtering it by date would hide
+      // exactly the money this tab exists to chase.
+      setOrders(
+        status === 'unpaid'
+          ? await api.orders.listUnpaid()
+          : await api.orders.list(from, to, status === 'all' ? undefined : status),
+      );
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Could not load orders.', 'error');
     } finally {
@@ -70,6 +77,15 @@ export default function OrdersPage() {
     };
   }, [orders]);
 
+  /** What the shop is currently owed, across every order on screen. */
+  const owed = useMemo(
+    () =>
+      orders
+        .filter((order) => order.status === 'open')
+        .reduce((sum, order) => sum + ((order as UnpaidOrder).amount_due ?? 0), 0),
+    [orders],
+  );
+
   const quickRange = (days: number) => {
     setFrom(days === 0 ? todayIso() : daysAgoIso(days));
     setTo(todayIso());
@@ -80,6 +96,9 @@ export default function OrdersPage() {
       title={strings.orders.title}
       subtitle={strings.orders.subtitle}
       actions={
+        /* The unpaid tab is not date-filtered, so offering a date range there
+           would be an input that silently does nothing. */
+        status === 'unpaid' ? null : (
         <>
           <Field label={strings.reports.from}>
             <input
@@ -98,23 +117,28 @@ export default function OrdersPage() {
             />
           </Field>
         </>
+        )
       }
     >
       <div className="grid" style={{ gap: 16 }}>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <button className="btn sm" onClick={() => quickRange(0)}>
-            Today
-          </button>
-          <button className="btn sm" onClick={() => quickRange(6)}>
-            Last 7 days
-          </button>
-          <button className="btn sm" onClick={() => quickRange(29)}>
-            Last 30 days
-          </button>
+          {status === 'unpaid' ? null : (
+            <>
+              <button className="btn sm" onClick={() => quickRange(0)}>
+                Today
+              </button>
+              <button className="btn sm" onClick={() => quickRange(6)}>
+                Last 7 days
+              </button>
+              <button className="btn sm" onClick={() => quickRange(29)}>
+                Last 30 days
+              </button>
+            </>
+          )}
 
           <span className="spacer" />
 
-          {(['all', 'settled', 'void'] as const).map((option) => (
+          {(['all', 'settled', 'void', 'unpaid'] as const).map((option) => (
             <button
               key={option}
               className={`cat-tab${status === option ? ' active' : ''}`}
@@ -124,7 +148,9 @@ export default function OrdersPage() {
                 ? strings.orders.all
                 : option === 'settled'
                   ? strings.orders.settled
-                  : strings.orders.voided}
+                  : option === 'void'
+                    ? strings.orders.voided
+                    : strings.orders.unpaid}
             </button>
           ))}
         </div>
@@ -133,10 +159,37 @@ export default function OrdersPage() {
           <div className="empty">{strings.common.loading}</div>
         ) : orders.length === 0 ? (
           <Card>
-            <Empty title={strings.orders.emptyTitle} note={strings.orders.emptyNote} />
+            <Empty
+              title={
+                status === 'unpaid' ? strings.orders.unpaidEmptyTitle : strings.orders.emptyTitle
+              }
+              note={status === 'unpaid' ? strings.orders.unpaidEmptyNote : strings.orders.emptyNote}
+            />
           </Card>
         ) : (
           <>
+            {/* What the shop is owed, and why this list ignores the dates. */}
+            {status === 'unpaid' ? (
+              <Card>
+                <div className="row-between">
+                  <span>
+                    <strong>
+                      {orders.length} order{orders.length === 1 ? '' : 's'} owing
+                    </strong>
+                    <div className="tiny muted" style={{ marginTop: 4, maxWidth: 560 }}>
+                      {strings.orders.unpaidNote}
+                    </div>
+                  </span>
+                  <span className="right">
+                    <span className="muted small">{strings.orders.owing} </span>
+                    <strong className="num" style={{ fontSize: 20, color: 'var(--warning-text)' }}>
+                      {money(owed)}
+                    </strong>
+                  </span>
+                </div>
+              </Card>
+            ) : null}
+
             {totals.count > 0 ? (
               <Card>
                 <div className="row-between">
@@ -173,16 +226,22 @@ export default function OrdersPage() {
                       <th>{strings.orders.type}</th>
                       <th>{strings.orders.when}</th>
                       <th className="right">{strings.orders.items}</th>
-                      <th>{strings.orders.payment}</th>
-                      <th className="right">{strings.orders.total}</th>
-                      {isAdmin ? <th className="right">{strings.orders.profit}</th> : null}
+                      <th>{status === 'unpaid' ? strings.orders.age : strings.orders.payment}</th>
+                      <th className="right">
+                        {status === 'unpaid' ? strings.orders.owing : strings.orders.total}
+                      </th>
+                      {isAdmin && status !== 'unpaid' ? (
+                        <th className="right">{strings.orders.profit}</th>
+                      ) : null}
                       <th className="right">Bill</th>
                     </tr>
                   </thead>
                   <tbody>
                     {orders.map((order) => {
                       const voided = order.status === 'void';
+                      const unpaid = order.status === 'open';
                       const lines = order.items.filter((item) => item.kitchen_status !== 'void');
+                      const due = (order as UnpaidOrder).amount_due ?? 0;
 
                       return (
                         <tr key={order.id}>
@@ -200,7 +259,11 @@ export default function OrdersPage() {
                           </td>
                           <td className="right num">{lines.length}</td>
                           <td>
-                            {voided ? (
+                            {/* How long it has been sitting is the number that
+                                decides which table to walk over to first. */}
+                            {unpaid ? (
+                              <span className="num">{since(order.opened_at)}</span>
+                            ) : voided ? (
                               <Badge kind="danger">{strings.orders.voided}</Badge>
                             ) : (
                               <Badge kind="success">
@@ -210,8 +273,17 @@ export default function OrdersPage() {
                               </Badge>
                             )}
                           </td>
-                          <td className="right num">{voided ? '—' : money(order.total)}</td>
-                          {isAdmin ? (
+                          <td
+                            className="right num"
+                            style={
+                              unpaid
+                                ? { color: 'var(--warning-text)', fontWeight: 650 }
+                                : undefined
+                            }
+                          >
+                            {voided ? '—' : money(unpaid ? due : order.total)}
+                          </td>
+                          {isAdmin && status !== 'unpaid' ? (
                             <td className="right num" style={{ color: 'var(--success)' }}>
                               {voided ? '—' : money(order.profit)}
                             </td>
@@ -222,17 +294,22 @@ export default function OrdersPage() {
                                 {strings.orders.view}
                               </button>
                               {/* A voided order was never paid — there is no
-                                  bill to reprint, so do not offer one. */}
+                                  bill to reprint, so do not offer one. An
+                                  unpaid one prints too, but as a slip marked
+                                  UNPAID rather than as a receipt. */}
                               {voided ? null : (
                                 <button
                                   className="btn sm primary"
                                   onClick={() => print(order)}
                                   disabled={printingId === order.id}
+                                  title={unpaid ? strings.orders.unpaidSlipNote : undefined}
                                 >
                                   <IconPrint size={15} />
                                   {printingId === order.id
                                     ? strings.orders.printing
-                                    : strings.orders.print}
+                                    : unpaid
+                                      ? strings.orders.printUnpaid
+                                      : strings.orders.print}
                                 </button>
                               )}
                             </div>
@@ -283,6 +360,7 @@ function OrderDetail({
   }, [order.id]);
 
   const voided = order.status === 'void';
+  const unpaid = order.status === 'open';
 
   return (
     <Modal
@@ -298,7 +376,11 @@ function OrderDetail({
           {voided ? null : (
             <button className="btn primary" onClick={onPrint} disabled={printing}>
               <IconPrint size={16} />
-              {printing ? strings.orders.printing : strings.orders.print}
+              {printing
+                ? strings.orders.printing
+                : unpaid
+                  ? strings.orders.printUnpaid
+                  : strings.orders.print}
             </button>
           )}
         </>
@@ -308,6 +390,16 @@ function OrderDetail({
         <Notice kind="warn">
           {strings.orders.voidedNote}
           {order.void_reason ? ` Reason: ${order.void_reason}` : ''}
+        </Notice>
+      ) : null}
+
+      {/* The preview below is the real slip, and on an unpaid order it says
+          UNPAID across the top. Saying so here too means nobody has to read
+          the preview to find out. */}
+      {unpaid ? (
+        <Notice kind="warn">
+          {strings.orders.owing}: {money((order as UnpaidOrder).amount_due ?? 0)} —{' '}
+          {strings.orders.unpaidSlipNote}
         </Notice>
       ) : null}
 

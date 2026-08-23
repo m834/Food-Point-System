@@ -522,15 +522,15 @@ function OrderWorkspace() {
 
       {/* ----------------------- right: running order ---------------------- */}
       <aside className="order-right">
-        {/* The chip strip is the SWITCHER — it only earns its space once an
-            order is on screen to switch away from. With nothing selected the
-            full list below says the same thing and more. */}
-        {order && openOrders.length > 0 ? (
+        {/* The switcher between orders in progress. The full unpaid list —
+            what each owes and how long it has been sitting — lives on the
+            Orders screen, where it can also be printed. */}
+        {openOrders.length > 0 ? (
           <div className="open-strip">
             {openOrders.map((summary) => (
               <button
                 key={summary.id}
-                className={`open-chip${order.id === summary.id ? ' active' : ''}`}
+                className={`open-chip${order?.id === summary.id ? ' active' : ''}`}
                 onClick={() => selectOrder(summary.id)}
               >
                 {summary.has_unfired ? <span className="dot" /> : null}
@@ -541,59 +541,16 @@ function OrderWorkspace() {
           </div>
         ) : null}
 
-        {!order && openOrders.length > 0 ? (
-          /* Unpaid orders — placed but not yet settled.
-             The chips said WHICH orders were open. They did not say how much
-             was owed or how long it had been sitting, which are the two things
-             a counter actually needs in order to chase money, and finding them
-             out meant opening each order in turn. */
-          <div className="unpaid-list">
-            <div className="unpaid-head">
-              <span>{strings.order.unpaidTitle}</span>
-              <span className="num">
-                {openOrders.length} · {money(openOrders.reduce((sum, o) => sum + o.subtotal, 0))}
-              </span>
-            </div>
-            {openOrders.map((summary) => (
-              <button
-                key={summary.id}
-                className="unpaid-row"
-                onClick={() => selectOrder(summary.id)}
-              >
-                <div className="unpaid-row-main">
-                  <div className="unpaid-row-where">
-                    {summary.table_name ?? ORDER_TYPE_LABELS[summary.type]}
-                    {summary.has_unfired ? <span className="dot" /> : null}
-                  </div>
-                  <div className="unpaid-row-meta num">
-                    {summary.order_no} · {since(summary.opened_at)}
-                  </div>
-                </div>
-                <div className="unpaid-row-total num">{money(summary.subtotal)}</div>
-              </button>
-            ))}
-            {/* Starting a new order must stay one tap away — this list
-                replaces the empty state that used to carry the button. */}
-            <div className="unpaid-foot">
-              <button className="btn primary big block" onClick={() => setStartOpen(true)}>
+        {!order ? (
+          <Empty
+            title={strings.order.noOpenOrders}
+            note="Start an order to begin taking items."
+            action={
+              <button className="btn primary big" onClick={() => setStartOpen(true)}>
                 {strings.order.startOrder}
               </button>
-            </div>
-          </div>
-        ) : null}
-
-        {!order ? (
-          openOrders.length > 0 ? null : (
-            <Empty
-              title={strings.order.noOpenOrders}
-              note="Start an order to begin taking items."
-              action={
-                <button className="btn primary big" onClick={() => setStartOpen(true)}>
-                  {strings.order.startOrder}
-                </button>
-              }
-            />
-          )
+            }
+          />
         ) : (
           <>
             {/* Which order am I on — never ambiguous. */}

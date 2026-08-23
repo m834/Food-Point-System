@@ -17,6 +17,9 @@ export const COUNTER_ROUTES = [
   '/order/', // take orders and bill — the counter's whole job
   '/orders/', // the day's orders, for looking one up and reprinting a bill
   '/tables/', // the dine-in floor: how a table order is started and resumed
+  '/day/', // opening and closing the trading day is counter work, not the
+  //          owner's — see electron/ipc/day.ts. The MARGIN on the report is
+  //          still stripped for anyone without an admin session.
 ] as const;
 
 /** Screens behind the manager PIN. */
@@ -27,7 +30,6 @@ export const ADMIN_ROUTES = [
   '/reports/', // sales, best sellers, hours
   '/cancellations/', // who cancelled what, and for how much
   '/customers/', // names, numbers and home addresses — the owner's to hold
-  '/day/', // opening and closing the trading day, and its takings and margin
   '/settings/', // printers, staff, PIN, logo, backup, licence
 ] as const;
 

@@ -15,6 +15,7 @@ import {
   fireToKitchen,
   getOrder,
   listOpenOrders,
+  listUnpaidOrders,
   listOrders,
   openOrder,
   setDelivery,
@@ -81,6 +82,12 @@ export function registerOrderHandlers(): void {
   handle('orders:get', (_e, id) => getOrder(asId(id, 'Order')));
 
   handle('orders:listOpen', () => listOpenOrders());
+
+  /**
+   * Every unpaid order, with what it owes. No date range on purpose — see
+   * listUnpaidOrders(). Not gated: chasing unpaid money is the counter's job.
+   */
+  handle('orders:listUnpaid', () => listUnpaidOrders());
 
   handle('orders:list', (_e, input) => {
     const raw = (input ?? {}) as Record<string, unknown>;

@@ -25,6 +25,7 @@ import type {
   SettingsMap,
   StaffMember,
   StaffSession,
+  UnpaidOrder,
   VoidRecord,
 } from '../../shared/types';
 
@@ -182,6 +183,7 @@ export const api = {
     ) => call<Order>('orders', 'setDelivery', orderId, input),
     get: (id: number) => call<Order | null>('orders', 'get', id),
     listOpen: () => call<OpenOrderSummary[]>('orders', 'listOpen'),
+    listUnpaid: () => call<UnpaidOrder[]>('orders', 'listUnpaid'),
     list: (from: string, to: string, status?: 'settled' | 'void' | 'open') =>
       call<Order[]>('orders', 'list', { from, to, status }),
     addItems: (orderId: number, lines: NewOrderLine[]) =>

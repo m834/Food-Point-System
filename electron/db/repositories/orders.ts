@@ -21,6 +21,7 @@ import type {
   OrderItemModifier,
   OrderType,
   PaymentMethod,
+  UnpaidOrder,
 } from '../../../shared/types';
 import { CANCEL_REASON_LABELS } from '../../../shared/types';
 
@@ -147,6 +148,46 @@ export function listOrders(
     .all(...params) as OrderRow[];
 
   return rows.map(hydrate);
+}
+
+/**
+ * What an unpaid order currently owes.
+ *
+ * `orders.total` is 0 until settlement — the money is fixed at the till, not
+ * when the food is ordered. So a screen or a slip that wants to state the
+ * amount due has to work it out, and it must do so by exactly the formula
+ * settleOrder() uses, or the counter chases one number and charges another.
+ *
+ * The discount is the one term left out: it is not agreed until the till, and
+ * showing a discount nobody has granted yet would understate the debt.
+ */
+export function amountDueFor(order: Order): number {
+  const live = order.items.filter((item) => item.kitchen_status !== 'void');
+  const subtotal = money(live.reduce((sum, item) => sum + item.line_total, 0));
+  const serviceCharge = money(serviceChargeFor(subtotal));
+  const delivery = money(order.delivery_charge ?? 0);
+  const extras = money(order.extras_total ?? 0);
+  return money(subtotal + serviceCharge + delivery + extras);
+}
+
+/**
+ * Every unpaid order in the shop, oldest first.
+ *
+ * Deliberately NOT date-filtered, unlike the history above. An order left
+ * unpaid on Tuesday is still unpaid on Friday, and a range filter would hide
+ * exactly the money the shop opened this screen to chase. Oldest first for the
+ * same reason: the table that has been sitting longest is the one to walk over
+ * to.
+ */
+export function listUnpaidOrders(): UnpaidOrder[] {
+  const rows = getDb()
+    .prepare(`${ORDER_SELECT} WHERE o.status = 'open' ORDER BY o.opened_at ASC`)
+    .all() as OrderRow[];
+
+  return rows.map((row) => {
+    const order = hydrate(row);
+    return { ...order, amount_due: amountDueFor(order) };
+  });
 }
 
 /* ------------------------------------------------------------------ *
