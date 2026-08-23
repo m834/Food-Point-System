@@ -2705,6 +2705,92 @@ app.whenReady().then(async () => {
     eq(managerPin.isPinSet(), true, 'the PIN survives the attempt');
   });
 
+
+  /* ================================================================== *
+   * 21 — Restoring an OLD backup
+   * ================================================================== */
+  section('21 — Old backup restore');
+
+  await testAsync('21.1', 'A backup from an older version restores and works', async () => {
+    // Build a database with the ORIGINAL v1 schema: no delivery columns, no
+    // customers, no extras. This is what a backup taken months ago looks like.
+    const Database = require(path.join(ROOT, 'node_modules', 'better-sqlite3'));
+    const oldDir = path.join(tmp, 'oldbackup');
+    fs.mkdirSync(oldDir, { recursive: true });
+    const oldDb = path.join(oldDir, 'foodpoint.db');
+
+    const legacy = new Database(oldDb);
+    legacy.exec(`
+      CREATE TABLE orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_no TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL CHECK (type IN ('dine_in','takeaway','delivery')),
+        table_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'open',
+        opened_at TEXT NOT NULL,
+        settled_at TEXT,
+        customer_name TEXT,
+        customer_phone TEXT,
+        subtotal REAL NOT NULL DEFAULT 0,
+        discount REAL NOT NULL DEFAULT 0,
+        service_charge REAL NOT NULL DEFAULT 0,
+        total REAL NOT NULL DEFAULT 0,
+        profit REAL,
+        payment_method TEXT,
+        void_reason TEXT,
+        voided_at TEXT
+      );
+      CREATE TABLE menu_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL, category_id INTEGER,
+        sale_price REAL NOT NULL DEFAULT 0, cost_price REAL NOT NULL DEFAULT 0,
+        is_available INTEGER NOT NULL DEFAULT 1, barcode TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0, notes TEXT
+      );
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '');
+    `);
+    legacy.prepare("INSERT INTO menu_items (name, sale_price, cost_price) VALUES ('Old Biryani', 400, 180)").run();
+    legacy.prepare(
+      "INSERT INTO orders (order_no,type,status,opened_at,settled_at,subtotal,total,profit,payment_method) " +
+      "VALUES ('20260101-001','takeaway','settled','2026-01-01 12:00:00','2026-01-01 12:05:00',400,400,220,'cash')"
+    ).run();
+    // Prove the old file genuinely lacks the newer columns.
+    const cols = legacy.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+    ok(!cols.includes('delivery_address'), 'the old backup really has no delivery_address');
+    ok(!cols.includes('extras_total'), 'nor extras_total');
+    legacy.close();
+
+    // Restore it, exactly as the shop would.
+    stubDialog(oldDir, null, 1);
+    const result = await backupSvc.restoreFromFile();
+    eq(result.restored, true, 'restore reported success');
+
+    // THE BUG: before restore ran migrate(), this threw
+    // "table orders has no column named delivery_address".
+    const after = getDb();
+    const nowCols = after.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+    ok(nowCols.includes('delivery_address'), 'delivery_address was added on restore');
+    ok(nowCols.includes('delivery_charge'), 'delivery_charge too');
+    ok(nowCols.includes('extras_total'), 'and extras_total');
+
+    // The tables added since that backup exist as well.
+    const tables = after
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((t) => t.name);
+    for (const t of ['customers', 'extra_charges', 'order_extras', 'staff', 'deals'])
+      ok(tables.includes(t), t + ' table created on restore');
+
+    // And the old data survived the upgrade.
+    eq(after.prepare('SELECT COUNT(*) n FROM orders').get().n, 1, 'the old order is still there');
+    eq(after.prepare("SELECT name FROM menu_items").get().name, 'Old Biryani', 'and the old menu');
+
+    // Most importantly: the app can actually WORK against it now.
+    const o = orders.openOrder({ type: 'delivery', delivery_address: 'Post-restore address' });
+    eq(o.delivery_address, 'Post-restore address', 'a delivery order can be taken immediately');
+    ok(customersRepo.listCustomers().length >= 0, 'and the customer table answers');
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   const pad = (s, n) => String(s).padEnd(n);

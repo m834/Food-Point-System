@@ -2,6 +2,7 @@ import { dialog } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkpoint, closeDb, dbPath, getDb } from '../db/connection';
+import { migrate } from '../db/migrate';
 import { copyUploadTree, restoreUploadTree } from './images';
 import { backupHistory, lastBackup, logBackup } from '../db/repositories/backupLog';
 import { nowIso } from '../db/money';
@@ -202,6 +203,24 @@ export async function restoreFromFile(): Promise<{ restored: boolean; images: nu
   const images = hasImages ? restoreUploadTree(siblingUpload) : 0;
 
   getDb();
+
+  /**
+   * Bring the restored file up to the CURRENT schema.
+   *
+   * This is not optional and its absence was a real bug. `migrate()` normally
+   * runs once at startup, but a restore replaces the database underneath a
+   * running app — so a backup taken on an older version comes back missing
+   * every column and table added since, while the code around it goes on
+   * expecting them. The symptom is immediate and total: "table orders has no
+   * column named delivery_address", and nothing works until the app is
+   * restarted.
+   *
+   * Migrating here means a restored backup is usable the moment it lands,
+   * whatever version it was taken on. The migration is additive and
+   * idempotent, so running it against an already-current file does nothing.
+   */
+  migrate();
+
   return { restored: true, images };
 }
 
