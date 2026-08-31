@@ -209,11 +209,19 @@
 
   --sidebar-w: 246px;
 
-  /* ---- The dashboard artwork ----
-     The client's own shop image, bundled in public/ and referenced from
-     exactly one place, the same contract the logo follows. Set it to `none`
-     to go back to the pure CSS mesh. */
+  /* ---- The shop artwork ----
+     The client's own image, bundled in public/ and referenced from exactly
+     one place, the same contract the logo follows. Set it to `none` to go
+     back to the pure CSS mesh. */
   --dashboard-art: url("/dashboard-bg.jpg");
+
+  /* How much of the ground is painted back OVER the artwork on the working
+     screens. The dashboard is looked AT and carries the art at full strength;
+     the order screen, the menu and the reports are looked THROUGH for eight
+     hours, and their small dense figures have to win. This veil is what keeps
+     the art present there without it competing with a price column — lower
+     the percentage to show more of the image, raise it to show less. */
+  --workspace-art-veil: color-mix(in srgb, var(--bg) 90%, transparent);
 
   /* ---- Motion. One curve, three speeds — consistency reads as care. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -314,9 +322,14 @@
 }
 
 /* The artwork is a dark image. On paper it has to come right back or it reads
-   as a stain rather than as branding. */
+   as a stain rather than as branding — on the dashboard and on the working
+   screens alike. */
 :root[data-theme="light"] .workspace.rich::after {
   opacity: 0.07;
+}
+
+:root[data-theme="light"] {
+  --workspace-art-veil: color-mix(in srgb, var(--bg) 95%, transparent);
 }
 
 /* The logo tile is a light chip on navy; on paper it needs to stay white
@@ -763,13 +776,32 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 /* ---- Workspace ---- */
 
+/**
+ * The artwork carries across every screen, not only the dashboard.
+ *
+ * Painted as a background layer on the element itself rather than as a
+ * pseudo-element: the workspace contains modals and toasts that sit at
+ * z-index 100 and 200, and giving this box a stacking context of its own
+ * would risk trapping them. A veil of the page colour is laid over the image
+ * in the same stack, which is also what does the dimming — no opacity, so
+ * nothing here can wash out the content drawn above it.
+ *
+ * `.workspace.rich` resets `background` wholesale below, so the dashboard is
+ * unaffected and keeps its own, much stronger treatment.
+ */
 .workspace {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--workspace-art-veil), var(--workspace-art-veil)),
+    var(--dashboard-art);
+  background-repeat: no-repeat, no-repeat;
+  background-position: center, center;
+  background-size: cover, cover;
 }
 
 .workspace-head {
