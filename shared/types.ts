@@ -500,6 +500,12 @@ export interface CancellationsReport {
 
 export interface DashboardSummary {
   date: string;
+  /**
+   * Set when these figures cover an OPEN trading day rather than a calendar
+   * date, so the screen can say "since 10:00 AM" instead of naming a date that
+   * the night has already run past.
+   */
+  session_opened_at: string | null;
   sales_total: number;
   profit_total: number;
   order_count: number;

@@ -3,11 +3,14 @@ import {
   bestSellers,
   cancellations,
   dashboard,
+  dashboardForSession,
   range,
   salesByHour,
+  salesByHourForSession,
   salesByType,
   voids,
 } from '../db/repositories/reports';
+import { currentSession } from '../db/repositories/daySessions';
 import { todayIso } from '../db/money';
 import { requireAdmin } from '../services/adminSession';
 
@@ -20,9 +23,27 @@ export function registerReportHandlers(): void {
    * the cancellation log are still answerable to anyone who reaches the
    * bridge, whatever the screen happens to be showing.
    */
+  /**
+   * With no date asked for, the dashboard follows the OPEN trading day.
+   *
+   * The shop opens at 10am and closes at 3am, so a calendar "today" empties
+   * the tiles at midnight in the middle of the shift. An explicit date is
+   * still honoured — that is someone looking up a past day on purpose.
+   */
   handle('reports:dashboard', (_e, date) => {
     requireAdmin();
-    return dashboard(date ? asDate(date, 'Date') : todayIso());
+    if (date) return dashboard(asDate(date, 'Date'));
+    const session = currentSession();
+    return session ? dashboardForSession(session) : dashboard(todayIso());
+  });
+
+  /** The hour-by-hour chart for the day the dashboard is showing. */
+  handle('reports:tradingHours', () => {
+    requireAdmin();
+    const session = currentSession();
+    if (session) return salesByHourForSession(session.id);
+    const today = todayIso();
+    return salesByHour(today, today);
   });
 
   handle('reports:range', (_e, input) => {

@@ -61,6 +61,9 @@ const api = {
     close: (input?: unknown) => ipcRenderer.invoke('day:close', input),
     report: (id: number) => ipcRenderer.invoke('day:report', id),
     print: (id: number) => ipcRenderer.invoke('day:print', id),
+    orders: (id: number) => ipcRenderer.invoke('day:orders', id),
+    sheetPrint: (id: number) => ipcRenderer.invoke('day:sheetPrint', id),
+    sheetPdf: (id: number) => ipcRenderer.invoke('day:sheetPdf', id),
   },
 
   customers: {
@@ -129,6 +132,7 @@ const api = {
     bestSellers: (from: string, to: string, limit?: number) =>
       ipcRenderer.invoke('reports:bestSellers', { from, to, limit }),
     byHour: (from: string, to: string) => ipcRenderer.invoke('reports:byHour', { from, to }),
+    tradingHours: () => ipcRenderer.invoke('reports:tradingHours'),
     voids: (from: string, to: string) => ipcRenderer.invoke('reports:voids', { from, to }),
     cancellations: (from: string, to: string) =>
       ipcRenderer.invoke('reports:cancellations', { from, to }),

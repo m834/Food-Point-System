@@ -193,7 +193,7 @@ export function buildCustomerBill(order: Order): string {
   const subtotal = unpaid
     ? Math.round((liveLines.reduce((sum, it) => sum + it.line_total, 0) + Number.EPSILON) * 100) / 100
     : order.subtotal;
-  const serviceCharge = unpaid ? serviceChargeFor(subtotal) : order.service_charge;
+  const serviceCharge = unpaid ? serviceChargeFor(subtotal, order.type) : order.service_charge;
   const total = unpaid
     ? Math.round(
         (subtotal + serviceCharge + (order.delivery_charge ?? 0) + (order.extras_total ?? 0) +

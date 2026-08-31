@@ -1,5 +1,10 @@
 import { getDb } from '../connection';
-import { DEFAULT_SETTINGS, SETTING_KEYS, type SettingsMap } from '../../../shared/types';
+import {
+  DEFAULT_SETTINGS,
+  SETTING_KEYS,
+  type OrderType,
+  type SettingsMap,
+} from '../../../shared/types';
 
 export function getAllSettings(): SettingsMap {
   const rows = getDb().prepare('SELECT key, value FROM settings').all() as Array<{
@@ -55,17 +60,37 @@ export function serviceChargePercent(): number {
 }
 
 /**
+ * Dine-in is the only order type that carries a service charge.
+ *
+ * The charge pays for table service: seating, serving, clearing. A takeaway
+ * customer carries their own bag out and a delivery customer already pays a
+ * delivery fee, so charging either for service bills them for something the
+ * shop never did — and on a flat-amount setting it is the same rupees as a
+ * full sit-down meal, which is how a Rs. 50 cover charge ends up on a Rs. 200
+ * takeaway.
+ */
+export function serviceChargeApplies(type: OrderType): boolean {
+  return type === 'dine_in';
+}
+
+/**
  * The service charge for a bill, in rupees.
  *
  * Two modes, because shops split on this: a flat cover charge is the norm at a
  * small food point, while a percentage suits a sit-down restaurant. Fixed is
  * the default.
  *
+ * The order type is required, not optional: it decides whether there is a
+ * charge at all, and a caller that forgot to pass it would otherwise bill a
+ * takeaway for table service. See serviceChargeApplies().
+ *
  * Computed HERE, in the main process, and never taken from the renderer —
  * the same rule the percentage always followed. A UI that could supply its own
  * amount could bill a figure the owner never set.
  */
-export function serviceChargeFor(subtotal: number): number {
+export function serviceChargeFor(subtotal: number, type: OrderType): number {
+  if (!serviceChargeApplies(type)) return 0;
+
   const mode = getSetting(SETTING_KEYS.serviceChargeMode) || 'fixed';
 
   if (mode === 'percent') {

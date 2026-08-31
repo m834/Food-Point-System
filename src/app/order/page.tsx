@@ -1208,10 +1208,18 @@ function ChargeModal({
     100,
   );
   const chargeAmount = Math.max(Number(settings[SETTING_KEYS.serviceChargeAmount]) || 0, 0);
+  // Dine-in only, matching serviceChargeApplies() in the main process. A
+  // takeaway or delivery customer buys no table service, so this line never
+  // reaches their bill — and the preview must agree with what settleOrder()
+  // will actually charge, or the counter quotes a total the slip contradicts.
+  const chargeApplies = order.type === 'dine_in';
   // A percentage is worked out on the GROSS subtotal, before the discount —
   // matching settleOrder().
-  const serviceCharge =
-    chargeMode === 'percent' ? round2((order.subtotal * chargePercent) / 100) : chargeAmount;
+  const serviceCharge = !chargeApplies
+    ? 0
+    : chargeMode === 'percent'
+      ? round2((order.subtotal * chargePercent) / 100)
+      : chargeAmount;
   // Read from the ORDER, exactly as settleOrder does — it was agreed with the
   // customer when the order was taken, not at the till.
   const deliveryCharge = order.type === 'delivery' ? round2(order.delivery_charge ?? 0) : 0;

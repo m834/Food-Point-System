@@ -73,6 +73,18 @@ export interface PrintOutcome {
   warning?: string;
 }
 
+/**
+ * The result of the A4 day sheet going to a printer or to a file.
+ *
+ * `ok: false` with no warning is the owner cancelling the dialog, which is a
+ * choice and not something to apologise for on screen.
+ */
+export interface SheetOutcome {
+  ok: boolean;
+  path?: string;
+  warning?: string;
+}
+
 export const api = {
   app: {
     version: () => call<string>('app', 'version'),
@@ -134,6 +146,11 @@ export const api = {
       call<{ report: DayReport; print: PrintOutcome }>('day', 'close', input),
     report: (id: number) => call<DayReport>('day', 'report', id),
     print: (id: number) => call<PrintOutcome>('day', 'print', id),
+    /** Every order taken on that day — settled, cancelled and still unpaid. */
+    orders: (id: number) => call<Order[]>('day', 'orders', id),
+    /** The A4 sheet, to an ordinary printer or to a PDF the owner keeps. */
+    sheetPrint: (id: number) => call<SheetOutcome>('day', 'sheetPrint', id),
+    sheetPdf: (id: number) => call<SheetOutcome>('day', 'sheetPdf', id),
   },
 
   customers: {
@@ -228,6 +245,7 @@ export const api = {
     bestSellers: (from: string, to: string, limit?: number) =>
       call<BestSeller[]>('reports', 'bestSellers', from, to, limit),
     byHour: (from: string, to: string) => call<SalesByHour[]>('reports', 'byHour', from, to),
+    tradingHours: () => call<SalesByHour[]>('reports', 'tradingHours'),
     voids: (from: string, to: string) => call<VoidRecord[]>('reports', 'voids', from, to),
     cancellations: (from: string, to: string) =>
       call<CancellationsReport>('reports', 'cancellations', from, to),

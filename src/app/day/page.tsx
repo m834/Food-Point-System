@@ -6,8 +6,8 @@ import { useApp } from '@/components/AppContext';
 import { Card, Empty, Field, Modal, Notice, Stat } from '@/components/ui';
 import { api } from '@/lib/api';
 import { strings } from '@/lib/strings';
-import { dateTime, money, qty as fmtQty } from '@/lib/format';
-import { ORDER_TYPE_LABELS, type DayReport, type DaySession } from '../../../shared/types';
+import { dateTime, money, qty as fmtQty, time } from '@/lib/format';
+import { ORDER_TYPE_LABELS, type DayReport, type DaySession, type Order } from '../../../shared/types';
 
 /**
  * Open Day / Close Day — the business day, not the calendar day.
@@ -160,7 +160,7 @@ export default function DayPage() {
                                   );
                                 }}
                               >
-                                {strings.day.print}
+                                {strings.day.printSlip}
                               </button>
                             ) : null}
                           </div>
@@ -199,7 +199,9 @@ export default function DayPage() {
         />
       ) : null}
 
-      {viewing ? <ReportModal report={viewing} onClose={() => setViewing(null)} /> : null}
+      {viewing ? (
+        <ReportModal report={viewing} onClose={() => setViewing(null)} toast={toast} />
+      ) : null}
     </AppShell>
   );
 }
@@ -318,18 +320,112 @@ function CloseDayModal({
   );
 }
 
-function ReportModal({ report, onClose }: { report: DayReport; onClose: () => void }) {
+/**
+ * The day, two ways.
+ *
+ * SUMMARY is the reconciliation: what was sold, what is owed, what is in the
+ * drawer. ORDERS is the audit trail behind it — every order between opening
+ * and closing, including the cancelled and the still-unpaid ones, because
+ * those are precisely the rows an owner opens this screen to find.
+ *
+ * Both leave the app through the same A4 sheet. Deliberately NOT the thermal
+ * printer: a night's orders is a document to file, and forty rows down an 80mm
+ * roll is two feet of till paper nobody can read.
+ */
+function ReportModal({
+  report,
+  onClose,
+  toast,
+}: {
+  report: DayReport;
+  onClose: () => void;
+  toast: (message: string, kind?: 'ok' | 'error') => void;
+}) {
+  const [tab, setTab] = useState<'summary' | 'orders'>('summary');
+  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Fetched once, when the tab is first opened — a long night is a lot of rows
+  // to carry for an owner who only wanted the takings.
+  useEffect(() => {
+    if (tab !== 'orders' || orders) return;
+    api.day
+      .orders(report.session.id)
+      .then(setOrders)
+      .catch((error) =>
+        toast(error instanceof Error ? error.message : 'Could not load the orders.', 'error'),
+      );
+  }, [tab, orders, report.session.id, toast]);
+
+  const exportSheet = async (how: 'print' | 'pdf') => {
+    setBusy(true);
+    try {
+      const result =
+        how === 'pdf'
+          ? await api.day.sheetPdf(report.session.id)
+          : await api.day.sheetPrint(report.session.id);
+
+      // Cancelling the dialog is a choice, not a failure — say nothing.
+      if (result.warning) toast(result.warning, 'error');
+      else if (result.ok) {
+        toast(
+          result.path ? strings.day.sheetSaved(result.path) : strings.day.sheetPrinted,
+          'ok',
+        );
+      }
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not produce the sheet.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Modal
       title={strings.day.report}
       onClose={onClose}
       wide
       footer={
-        <button className="btn primary" onClick={onClose}>
-          {strings.common.close}
-        </button>
+        <>
+          <button className="btn" onClick={() => void exportSheet('pdf')} disabled={busy}>
+            {strings.day.savePdf}
+          </button>
+          <button className="btn" onClick={() => void exportSheet('print')} disabled={busy}>
+            {strings.day.printSheet}
+          </button>
+          <button className="btn primary" onClick={onClose}>
+            {strings.common.close}
+          </button>
+        </>
       }
     >
+      <div className="row" style={{ gap: 0, marginBottom: 16 }}>
+        {(['summary', 'orders'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={`cat-tab${tab === key ? ' active' : ''}`}
+            onClick={() => setTab(key)}
+            style={{ flex: 1 }}
+          >
+            {key === 'summary' ? strings.day.tabSummary : strings.day.tabOrders}
+            {key === 'orders' && orders ? ` (${orders.length})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'orders' ? (
+        <OrdersTab orders={orders} />
+      ) : (
+        <SummaryTab report={report} />
+      )}
+    </Modal>
+  );
+}
+
+function SummaryTab({ report }: { report: DayReport }) {
+  return (
+    <>
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         <Stat label={strings.day.sales} value={money(report.sales_total)} />
         {/* Null for the counter — see the note at the top of this file.
@@ -413,6 +509,104 @@ function ReportModal({ report, onClose }: { report: DayReport; onClose: () => vo
           </table>
         </>
       ) : null}
-    </Modal>
+    </>
+  );
+}
+
+/**
+ * Every order of the day, in the order it was taken.
+ *
+ * Cancelled rows are struck through rather than dropped: an owner reconciling
+ * a short drawer is looking for exactly those, and a list that quietly omits
+ * them answers the wrong question. Unpaid rows are bold for the same reason —
+ * that is money still out on a table.
+ */
+function OrdersTab({ orders }: { orders: Order[] | null }) {
+  if (!orders) return <div className="empty">{strings.common.loading}</div>;
+  if (!orders.length) return <Empty title={strings.day.noOrdersOnDay} />;
+
+  return (
+    <>
+      <p className="muted small" style={{ marginTop: 0 }}>{strings.day.ordersOnDay}</p>
+      <div className="table-scroll">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>{strings.day.colOrder}</th>
+              <th>{strings.day.colTime}</th>
+              <th>{strings.day.colType}</th>
+              <th>{strings.day.colWho}</th>
+              <th className="right">{strings.day.colItems}</th>
+              <th>{strings.day.colPaid}</th>
+              <th className="right">{strings.day.colTotal}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((order) => {
+              // A cancellation voids every line, so a cancelled row has to
+              // count them all — otherwise the row the owner is investigating
+              // is the one row that reads as nothing. Mirrors daySheet.ts.
+              const live = order.items.filter((i) => i.kitchen_status !== 'void');
+              const items = order.status === 'void' ? order.items.length : live.length;
+              const owed =
+                Math.round(
+                  (live.reduce((sum, i) => sum + i.line_total, 0) +
+                    (order.extras_total ?? 0) +
+                    Number.EPSILON) * 100,
+                ) / 100;
+              const value =
+                order.status === 'settled'
+                  ? order.total
+                  : order.status === 'void'
+                    ? order.voided_was_paid
+                      ? order.total
+                      : order.subtotal
+                    : owed;
+              const who =
+                order.type === 'dine_in'
+                  ? order.table_name ?? '—'
+                  : order.customer_name ?? '—';
+
+              return (
+                <tr key={order.id}>
+                  <td className="num">{order.order_no}</td>
+                  <td className="num muted">{time(order.settled_at ?? order.opened_at)}</td>
+                  <td>{ORDER_TYPE_LABELS[order.type]}</td>
+                  <td>{who}</td>
+                  <td className="right num">{items}</td>
+                  <td>
+                    {order.status === 'settled' ? (
+                      <span className="muted">
+                        {order.payment_method === 'card' ? strings.order.card : strings.order.cash}
+                      </span>
+                    ) : order.status === 'void' ? (
+                      <span style={{ color: 'var(--danger-text)' }}>
+                        {strings.day.statusCancelled}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--warning-text)' }}>
+                        {strings.day.statusUnpaid}
+                      </span>
+                    )}
+                  </td>
+                  <td
+                    className="right num"
+                    style={
+                      order.status === 'void'
+                        ? { textDecoration: 'line-through', opacity: 0.6 }
+                        : order.status === 'open'
+                          ? { fontWeight: 700, color: 'var(--warning-text)' }
+                          : undefined
+                    }
+                  >
+                    {money(value)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

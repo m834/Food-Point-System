@@ -656,9 +656,11 @@ app.whenReady().then(async () => {
     ok(/Discount\s+-Rs100\.00/.test(bill), 'discount line on bill');
   });
 
-  test('7.3', 'Service charge 10% on subtotal 800', () => {
+  test('7.3', 'Service charge 10% on a DINE-IN subtotal of 800', () => {
     settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
-    const o = orders.openOrder({ type: 'takeaway' });
+    // Dine-in, because that is the only order type the charge applies to —
+    // see 22.8. On a takeaway every figure below would be the bare subtotal.
+    const o = orders.openOrder({ type: 'dine_in' });
     orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
     const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
     eq(settled.subtotal, 800, 'subtotal');
@@ -668,7 +670,7 @@ app.whenReady().then(async () => {
     ok(/Service charge\s+Rs80\.00/.test(bill), 'service charge line on bill');
 
     // Order of operations, documented: charge on gross subtotal, discount after.
-    const o2 = orders.openOrder({ type: 'takeaway' });
+    const o2 = orders.openOrder({ type: 'dine_in' });
     orders.addItems(o2.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
     const s2 = orders.settleOrder(o2.id, { discount: 100, payment_method: 'cash' });
     eq(s2.service_charge, 80, 'charge computed on gross subtotal');
@@ -697,7 +699,7 @@ app.whenReady().then(async () => {
       [7.5, 33.33], // awkward percentage and an awkward discount
     ]) {
       settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: String(pct) });
-      const o = orders.openOrder({ type: 'takeaway' });
+      const o = orders.openOrder({ type: 'dine_in' });
       orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
       const subtotal = orders.getOrder(o.id).subtotal;
       const quoted = preview(subtotal, discount, pct);
@@ -1036,14 +1038,16 @@ app.whenReady().then(async () => {
     ok(/\(extra crispy\)/.test(bill), 'line note');
     ok(/Subtotal\s+Rs/.test(bill), 'subtotal');
     ok(/Discount\s+-Rs50\.00/.test(bill), 'discount');
-    ok(/Service charge\s+Rs/.test(bill), 'service charge');
+    ok(!/Service charge/.test(bill), 'NO service charge line — this is a delivery');
     ok(/TOTAL\s+Rs/.test(bill), 'total');
     ok(/Thank you/.test(bill), 'thank you');
 
-    // 2 x (350 + 50 + 60) = 920, + 80 drink = 1000; charge 5% of 1000 = 50; -50 disc
+    // 2 x (350 + 50 + 60) = 920, + 80 drink = 1000; -50 discount. The 5%
+    // service charge is configured but never applies: a delivery customer buys
+    // no table service.
     eq(settled.subtotal, 1000, 'subtotal arithmetic');
-    eq(settled.service_charge, 50, 'service charge');
-    eq(settled.total, 1000, 'total = 1000 - 50 + 50');
+    eq(settled.service_charge, 0, 'delivery is not charged for service');
+    eq(settled.total, 950, 'total = 1000 - 50');
     ok(bill.split('\n').every((l) => l.length <= 42), 'every line fits a 42-col roll');
     settingsRepo.saveSettings({ service_charge_percent: '0' });
   });
@@ -2246,13 +2250,15 @@ app.whenReady().then(async () => {
     eq(settled.profit, 950 - 2 * 180, 'profit = total - real food cost');
   });
 
-  test('17.5', 'Delivery works alongside a discount and a service charge', () => {
+  test('17.5', 'Delivery takes a discount, and NEVER a service charge', () => {
     settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
     const o = orders.openOrder({ type: 'delivery', delivery_address: 'C', delivery_charge: 100 });
     orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
     const settled = orders.settleOrder(o.id, { discount: 50, payment_method: 'cash' });
-    // 400 - 50 + 40 (10% of 400) + 100 = 490
-    eq(settled.total, 490, 'all four terms combine correctly');
+    // 400 - 50 + 100 = 450. The 10% is live in settings and still does not
+    // apply: the customer is already paying to have the food carried to them.
+    eq(settled.service_charge, 0, 'the delivery fee is the only extra charge');
+    eq(settled.total, 450, 'all three terms combine correctly');
     settingsRepo.saveSettings({ service_charge_percent: '0' });
   });
 
@@ -2426,14 +2432,23 @@ app.whenReady().then(async () => {
     eq(settled.profit, 450 - 180 - 16, 'packaging cost is deducted too');
   });
 
-  test('18.5', 'Extras combine with delivery, discount and service charge', () => {
+  test('18.5', 'Extras combine with delivery and a discount', () => {
     settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
     const o = orders.openOrder({ type: 'delivery', delivery_address: 'X', delivery_charge: 100 });
     orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
     orders.setExtraOnOrder(o.id, plates, 1); // 20
     const settled = orders.settleOrder(o.id, { discount: 50, payment_method: 'cash' });
-    // 400 - 50 + 40 (10%) + 100 delivery + 20 extras = 510
-    eq(settled.total, 510, 'all five terms combine');
+    // 400 - 50 + 100 delivery + 20 extras = 470. The 10% service charge is set
+    // and skipped: delivery never pays it.
+    eq(settled.total, 470, 'all four terms combine');
+
+    // The same basket dining in DOES pay it: 400 - 50 + 40 + 20 = 410.
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
+    const d = orders.openOrder({ type: 'dine_in' });
+    orders.addItems(d.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    orders.setExtraOnOrder(d.id, plates, 1);
+    const dSettled = orders.settleOrder(d.id, { discount: 50, payment_method: 'cash' });
+    eq(dSettled.total, 410, 'the very same basket, seated, carries the charge');
     settingsRepo.saveSettings({ service_charge_percent: '0' });
   });
 
@@ -2840,44 +2855,44 @@ app.whenReady().then(async () => {
   test('22.1', 'Fixed is the default', () => {
     settingsRepo.saveSettings({ service_charge_mode: '', service_charge_amount: '0', service_charge_percent: '0' });
     eq(settingsRepo.serviceChargeMode(), 'fixed', 'a blank mode means fixed');
-    eq(settingsRepo.serviceChargeFor(1000), 0, 'and nothing is charged until an amount is set');
+    eq(settingsRepo.serviceChargeFor(1000, 'dine_in'), 0, 'and nothing is charged until an amount is set');
   });
 
   test('22.2', 'A fixed amount is the SAME on every bill', () => {
     settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '50' });
-    eq(settingsRepo.serviceChargeFor(100), 50, 'small bill');
-    eq(settingsRepo.serviceChargeFor(10000), 50, 'large bill — still 50, that is the point');
-    eq(settingsRepo.serviceChargeFor(0), 50, 'even an empty subtotal');
+    eq(settingsRepo.serviceChargeFor(100, 'dine_in'), 50, 'small bill');
+    eq(settingsRepo.serviceChargeFor(10000, 'dine_in'), 50, 'large bill — still 50, that is the point');
+    eq(settingsRepo.serviceChargeFor(0, 'dine_in'), 50, 'even an empty subtotal');
   });
 
   test('22.3', 'A percentage scales with the bill', () => {
     settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
-    eq(settingsRepo.serviceChargeFor(100), 10, '10% of 100');
-    eq(settingsRepo.serviceChargeFor(455), 45.5, 'rounded to paisa, not to rupees');
-    eq(settingsRepo.serviceChargeFor(0), 0, 'nothing ordered, nothing charged');
+    eq(settingsRepo.serviceChargeFor(100, 'dine_in'), 10, '10% of 100');
+    eq(settingsRepo.serviceChargeFor(455, 'dine_in'), 45.5, 'rounded to paisa, not to rupees');
+    eq(settingsRepo.serviceChargeFor(0, 'dine_in'), 0, 'nothing ordered, nothing charged');
   });
 
   test('22.4', 'The fixed amount is ignored while on percent, and vice versa', () => {
     // Both numbers are stored; only the chosen one may reach a bill. A shop
     // that experiments with the other mode must not be double-charged.
     settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10', service_charge_amount: '500' });
-    eq(settingsRepo.serviceChargeFor(200), 20, 'percent mode ignores the fixed amount');
+    eq(settingsRepo.serviceChargeFor(200, 'dine_in'), 20, 'percent mode ignores the fixed amount');
     settingsRepo.saveSettings({ service_charge_mode: 'fixed' });
-    eq(settingsRepo.serviceChargeFor(200), 500, 'fixed mode ignores the percentage');
+    eq(settingsRepo.serviceChargeFor(200, 'dine_in'), 500, 'fixed mode ignores the percentage');
   });
 
   test('22.5', 'Nonsense values cannot inflate a bill', () => {
     settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '-100' });
-    eq(settingsRepo.serviceChargeFor(500), 0, 'a negative charge is not a discount');
+    eq(settingsRepo.serviceChargeFor(500, 'dine_in'), 0, 'a negative charge is not a discount');
     settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '1000' });
-    eq(settingsRepo.serviceChargeFor(100), 100, 'a typo of 1000% is clamped to 100%');
+    eq(settingsRepo.serviceChargeFor(100, 'dine_in'), 100, 'a typo of 1000% is clamped to 100%');
     settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: 'abc' });
-    eq(settingsRepo.serviceChargeFor(500), 0, 'a non-number falls back to nothing');
+    eq(settingsRepo.serviceChargeFor(500, 'dine_in'), 0, 'a non-number falls back to nothing');
   });
 
   test('22.6', 'A real order picks the charge up from the chosen mode', () => {
     settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '30' });
-    const o = orders.openOrder({ type: 'takeaway' });
+    const o = orders.openOrder({ type: 'dine_in' });
     orders.addItems(o.id, [{ menu_item_id: D['Day Water'], qty: 1, modifier_ids: [] }]);
     const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
     eq(settled.subtotal, 60, 'one bottle of water');
@@ -2903,13 +2918,80 @@ app.whenReady().then(async () => {
       [100, 5000], // discount larger than the bill
     ]) {
       settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: String(amount) });
-      const o = orders.openOrder({ type: 'takeaway' });
+      const o = orders.openOrder({ type: 'dine_in' });
       orders.addItems(o.id, [{ menu_item_id: D['Day Biryani'], qty: 2, modifier_ids: [] }]);
       const subtotal = orders.getOrder(o.id).subtotal;
       const quoted = preview(subtotal, discount, amount);
       const settled = orders.settleOrder(o.id, { discount, payment_method: 'cash' });
       eq(quoted, settled.total, `quote matches bill at flat ${amount} / discount ${discount}`);
     }
+    settingsRepo.saveSettings({ service_charge_amount: '0' });
+  });
+
+  test('22.8', 'ONLY dine-in pays a service charge', () => {
+    // The rule the whole feature turns on. A takeaway customer carries their
+    // own bag out and a delivery customer already pays a rider; neither buys
+    // table service, and on a flat setting they would otherwise be charged the
+    // same rupees as a full sit-down meal.
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '50' });
+    eq(settingsRepo.serviceChargeFor(1000, 'dine_in'), 50, 'dine-in pays');
+    eq(settingsRepo.serviceChargeFor(1000, 'takeaway'), 0, 'takeaway does not');
+    eq(settingsRepo.serviceChargeFor(1000, 'delivery'), 0, 'delivery does not');
+
+    settingsRepo.saveSettings({ service_charge_mode: 'percent', service_charge_percent: '10' });
+    eq(settingsRepo.serviceChargeFor(1000, 'dine_in'), 100, 'and the same in percent mode');
+    eq(settingsRepo.serviceChargeFor(1000, 'takeaway'), 0, 'takeaway still free of it');
+    eq(settingsRepo.serviceChargeFor(1000, 'delivery'), 0, 'delivery still free of it');
+    settingsRepo.saveSettings({ service_charge_percent: '0' });
+  });
+
+  test('22.9', 'The same basket is billed differently by order type', () => {
+    // End to end, through settleOrder rather than the helper: the charge has to
+    // reach (or miss) the stored column and the printed bill, not just agree in
+    // a unit test.
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '50' });
+
+    const bill = (type, extra) => {
+      const o = orders.openOrder({ type, ...extra });
+      orders.addItems(o.id, [{ menu_item_id: D['Day Biryani'], qty: 1, modifier_ids: [] }]);
+      const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+      return { settled, slip: receipt.buildCustomerBill(settled) };
+    };
+
+    const dine = bill('dine_in', {});
+    eq(dine.settled.subtotal, 400, 'one biryani');
+    eq(dine.settled.service_charge, 50, 'seated: charged');
+    eq(dine.settled.total, 450, 'and it reaches the total');
+    ok(/Service charge/.test(dine.slip), 'the line is printed for the seated customer');
+
+    const take = bill('takeaway', {});
+    eq(take.settled.service_charge, 0, 'takeaway: not charged');
+    eq(take.settled.total, 400, 'the total is the food and nothing else');
+    ok(!/Service charge/.test(take.slip), 'and no line is printed to explain a charge of nothing');
+
+    const deliver = bill('delivery', { delivery_address: 'Somewhere', delivery_charge: 100 });
+    eq(deliver.settled.service_charge, 0, 'delivery: not charged');
+    eq(deliver.settled.total, 500, 'food + the delivery fee only');
+    ok(!/Service charge/.test(deliver.slip), 'no service line on a delivery bill');
+
+    settingsRepo.saveSettings({ service_charge_amount: '0' });
+  });
+
+  test('22.10', 'A takeaway cannot be talked into a table charge at the till', () => {
+    // The order type is fixed when the order is opened and settleOrder reads it
+    // from the ORDER, not from whatever the till sends. Nothing in the settle
+    // payload can turn a takeaway into a dine-in.
+    settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '50' });
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Biryani'], qty: 1, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, {
+      payment_method: 'cash',
+      type: 'dine_in',
+      service_charge: 50,
+    });
+    eq(settled.type, 'takeaway', 'the type is still what was opened');
+    eq(settled.service_charge, 0, 'and no charge was smuggled in');
+    eq(settled.total, 400, 'the customer pays for the food');
     settingsRepo.saveSettings({ service_charge_amount: '0' });
   });
 
@@ -2964,7 +3046,7 @@ app.whenReady().then(async () => {
     // exactly that. Folding the service charge or delivery fee in here would
     // overstate what the kitchen actually earned.
     settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '75' });
-    const o = orders.openOrder({ type: 'takeaway' });
+    const o = orders.openOrder({ type: 'dine_in' });
     orders.addItems(o.id, [{ menu_item_id: D['Day Kebab'], qty: 1, modifier_ids: [] }]);
     orders.settleOrder(o.id, { payment_method: 'cash' });
 
@@ -3126,9 +3208,10 @@ app.whenReady().then(async () => {
     ok(!orders.listUnpaidOrders().some((u) => u.id === o.id), 'and it leaves once paid');
   });
 
-  test('24.2', 'AMOUNT DUE includes the service charge, delivery and extras', () => {
+  test('24.2', 'AMOUNT DUE follows the same rules the till will', () => {
     // orders.total is 0 until settlement, so a screen that read it would show
-    // the customer a bill for nothing.
+    // the customer a bill for nothing. What is quoted here must equal what
+    // settleOrder charges — including the dine-in-only service charge.
     settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '40' });
     const o = orders.openOrder({
       type: 'delivery',
@@ -3139,17 +3222,25 @@ app.whenReady().then(async () => {
 
     const row = orders.listUnpaidOrders().find((u) => u.id === o.id);
     eq(row.total, 0, 'the stored total really is still zero');
-    eq(row.amount_due, 1290, '1100 food + 40 service + 150 delivery');
+    eq(row.amount_due, 1250, '1100 food + 150 delivery, no service charge');
 
     // And settling charges exactly what was quoted.
     const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
-    eq(settled.total, 1290, 'the till charges what the list said');
+    eq(settled.total, 1250, 'the till charges what the list said');
+
+    // The seated equivalent DOES carry the charge, in the list and at the till.
+    const d = orders.openOrder({ type: 'dine_in' });
+    orders.addItems(d.id, [{ menu_item_id: D['Day Tikka'], qty: 2, modifier_ids: [] }]);
+    const dRow = orders.listUnpaidOrders().find((u) => u.id === d.id);
+    eq(dRow.amount_due, 1140, '1100 food + 40 service');
+    eq(orders.settleOrder(d.id, { payment_method: 'cash' }).total, 1140, 'and the till agrees');
     settingsRepo.saveSettings({ service_charge_amount: '0' });
   });
 
   test('24.3', 'The unpaid slip can NEVER be mistaken for a receipt', () => {
     settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '25' });
-    const o = orders.openOrder({ type: 'takeaway' });
+    // Seated, so the slip has a live service charge to prove it computes.
+    const o = orders.openOrder({ type: 'dine_in' });
     orders.addItems(o.id, [{ menu_item_id: D['Day Burger'], qty: 2, modifier_ids: [] }]);
     const slip = receipt.buildCustomerBill(orders.getOrder(o.id));
 
@@ -3203,6 +3294,305 @@ app.whenReady().then(async () => {
     const row = orders.listUnpaidOrders().find((u) => u.id === o.id);
     eq(row.amount_due, 400, 'only the biryani is owed');
     orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
+  });
+
+  /* ================= Section 25 — A day that runs past midnight ================= */
+  section('25 — Trading past midnight');
+
+  /**
+   * The client opens at 10am and closes at 3am. Everything below is about one
+   * rule: the trading day ends when someone PRESSES Close Day, and nothing
+   * about the clock striking twelve may start a new one.
+   */
+
+  // Clear the decks: close whatever section 23/24 left open.
+  if (day.currentSession()) day.closeDay({});
+  for (const u of orders.listUnpaidOrders()) {
+    orders.voidOrder(u.id, { reason_code: 'duplicate', note: null, staff_id: null });
+  }
+  settingsRepo.saveSettings({ service_charge_mode: 'fixed', service_charge_amount: '0' });
+
+  const reports_history = (from, to) =>
+    orders.listOrders(from, to).map((o) => o.order_no);
+
+  test('25.1', 'Midnight does NOT close the open day', () => {
+    const s = day.openDay({ opening_float: 0 });
+    // Backdate the session so it looks like it opened at 10am YESTERDAY and
+    // the clock has since rolled past midnight — exactly the client's night.
+    const yest = new Date(Date.now() - 24 * 3600 * 1000);
+    const ymd = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`;
+    getDb().prepare('UPDATE day_sessions SET opened_at = ? WHERE id = ?').run(`${ymd} 10:00:00`, s.id);
+
+    const still = day.currentSession();
+    ok(still, 'the day is still open on the far side of midnight');
+    eq(still.id, s.id, 'and it is the SAME day, not a fresh one');
+    eq(still.closed_at, null, 'nothing closed it but a human');
+  });
+
+  test('25.2', 'Order numbers do NOT restart at midnight', () => {
+    // The counter's evidence that a new day began: the slip in their hand.
+    // One trading night must be one unbroken run of numbers.
+    const session = day.currentSession();
+    const openedYmd = session.opened_at.slice(0, 10).replace(/-/g, '');
+
+    const a = orders.openOrder({ type: 'takeaway' });
+    const b = orders.openOrder({ type: 'takeaway' });
+
+    ok(
+      a.order_no.startsWith(`${openedYmd}-`),
+      `numbered under the day that is OPEN (${openedYmd}), got ${a.order_no}`,
+    );
+    ok(
+      b.order_no.startsWith(`${openedYmd}-`),
+      `and so is the next one, got ${b.order_no}`,
+    );
+    eq(
+      Number(b.order_no.split('-')[1]) - Number(a.order_no.split('-')[1]),
+      1,
+      'the sequence just carries on — no restart at 001',
+    );
+
+    orders.voidOrder(a.id, { reason_code: 'duplicate', note: null, staff_id: null });
+    orders.voidOrder(b.id, { reason_code: 'duplicate', note: null, staff_id: null });
+  });
+
+  test('25.3', 'The takings of one night stay on ONE report', () => {
+    const session = day.currentSession();
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: D['Day Biryani'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(o.id, { payment_method: 'cash' });
+
+    const r = day.dayReport(session.id);
+    // Settled "after midnight" by the clock, but it belongs to the open day.
+    ok(r.sales_total >= 400, 'the sale lands on the open day, not on a new one');
+    eq(r.session.id, session.id, 'and the report is that day');
+  });
+
+  test('25.4', 'Only a human ends the day — and then numbering moves on', () => {
+    const before = day.currentSession();
+    const closed = day.closeDay({});
+    eq(closed.id, before.id, 'the day the human closed');
+    ok(closed.closed_at, 'stamped with the moment they pressed it');
+    eq(day.currentSession(), null, 'and nothing re-opened one by itself');
+
+    // A fresh day, opened by hand, starts its own run of numbers.
+    const next = day.openDay({ opening_float: 0 });
+    const o = orders.openOrder({ type: 'takeaway' });
+    const todayYmd = next.opened_at.slice(0, 10).replace(/-/g, '');
+    ok(o.order_no.startsWith(`${todayYmd}-`), `new day, new prefix, got ${o.order_no}`);
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
+    day.closeDay({});
+  });
+
+  test('25.5', 'With NO day open, the calendar date still numbers orders', () => {
+    // Opening a day is not compulsory — the counter must be able to serve
+    // regardless — so with nothing open there is nothing to anchor to and
+    // today's date is the honest answer.
+    eq(day.currentSession(), null, 'no day open');
+    const prefix = require(path.join(dist, 'db', 'money')).orderNoPrefix();
+    const o = orders.openOrder({ type: 'takeaway' });
+    ok(o.order_no.startsWith(`${prefix}-`), `falls back to the calendar date, got ${o.order_no}`);
+    orders.voidOrder(o.id, { reason_code: 'duplicate', note: null, staff_id: null });
+  });
+
+  test('25.6', 'The DASHBOARD counts the trading day, not the calendar day', () => {
+    // The proof: one night's orders, half before midnight and half after.
+    // A calendar dashboard splits them across two dates and tells the owner
+    // the shift earned half of what it did.
+    const s = day.openDay({ opening_float: 0 });
+    const yest = new Date(Date.now() - 24 * 3600 * 1000);
+    const ymd = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`;
+    const today = todayIso();
+    getDb().prepare('UPDATE day_sessions SET opened_at = ? WHERE id = ?').run(`${ymd} 10:00:00`, s.id);
+
+    const ins = getDb().prepare(
+      `INSERT INTO orders (order_no, type, status, session_id, opened_at, settled_at,
+                           subtotal, total, profit, payment_method)
+       VALUES (?, 'takeaway', 'settled', ?, ?, ?, ?, ?, ?, 'cash')`,
+    );
+    // 11pm — before midnight, on the opening date.
+    ins.run(`${ymd.replace(/-/g, '')}-901`, s.id, `${ymd} 23:00:00`, `${ymd} 23:00:00`, 500, 500, 200);
+    // 1am — after midnight, on the NEXT calendar date, same trading night.
+    ins.run(`${ymd.replace(/-/g, '')}-902`, s.id, `${today} 01:00:00`, `${today} 01:00:00`, 300, 300, 100);
+
+    const byDay = reports.dashboardForSession(day.currentSession());
+    eq(byDay.order_count, 2, 'the trading day sees the WHOLE night');
+    eq(byDay.sales_total, 800, 'and totals all of it');
+    eq(byDay.session_opened_at, `${ymd} 10:00:00`, 'labelled by when the day opened');
+
+    // The same night by calendar date: only the half that fell before midnight.
+    // (Today's calendar date is not asserted on — earlier sections settled
+    // plenty of orders under it, which is exactly why it is the wrong unit.)
+    const cal = reports.dashboard(ymd);
+    eq(cal.order_count, 1, 'a calendar date sees only its half of the night');
+    eq(cal.sales_total, 500, 'and so counts only half the money');
+
+    // The hour chart must carry both sides of midnight too.
+    const hours = reports.salesByHourForSession(s.id).map((r) => r.hour);
+    ok(hours.includes(23), '11pm is on the chart');
+    ok(hours.includes(1), 'and so is 1am — the hours a fixed 9-to-11 axis hid');
+
+    day.closeDay({});
+  });
+
+  test('25.7', 'With no day open the dashboard falls back to the calendar date', () => {
+    // Opening a day is not compulsory, so the dashboard must still say
+    // something sensible for a shop that never presses the button.
+    if (day.currentSession()) day.closeDay({});
+    eq(day.currentSession(), null, 'nothing open');
+    const d = reports.dashboard(todayIso());
+    eq(d.session_opened_at, null, 'and it does not pretend to be a trading day');
+    eq(d.date, todayIso(), 'it is simply today');
+  });
+
+  test('25.8', 'A night that crosses midnight is ONE row in the reports', () => {
+    // The owner comparing nights must not be handed two half-nights. Sales by
+    // day, the order history and the void log all date an order by the trading
+    // day it belongs to, not by the calendar page it happened to fall on.
+    const s = day.openDay({ opening_float: 0 });
+    const back = new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    const ymd = `${back.getFullYear()}-${String(back.getMonth() + 1).padStart(2, '0')}-${String(back.getDate()).padStart(2, '0')}`;
+    const nextDay = new Date(back.getTime() + 24 * 3600 * 1000);
+    const ymd2 = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+    getDb().prepare('UPDATE day_sessions SET opened_at = ? WHERE id = ?').run(`${ymd} 10:00:00`, s.id);
+
+    const ins = getDb().prepare(
+      `INSERT INTO orders (order_no, type, status, session_id, opened_at, settled_at,
+                           subtotal, total, profit, payment_method)
+       VALUES (?, 'takeaway', 'settled', ?, ?, ?, ?, ?, ?, 'cash')`,
+    );
+    ins.run('NIGHT-A', s.id, `${ymd} 23:30:00`, `${ymd} 23:30:00`, 600, 600, 250);
+    ins.run('NIGHT-B', s.id, `${ymd2} 02:00:00`, `${ymd2} 02:00:00`, 400, 400, 150);
+
+    // Ask across BOTH calendar dates; the night must come back as one row.
+    const r = reports.range(ymd, ymd2);
+    const rows = r.days.filter((d) => d.date === ymd || d.date === ymd2);
+    eq(rows.length, 1, 'one trading day, one row — not split at midnight');
+    eq(rows[0].date, ymd, 'dated by the day the shop OPENED');
+    eq(rows[0].sales, 1000, 'and it carries the whole night');
+    eq(rows[0].orders, 2, 'both orders on the one day');
+
+    // The history agrees: asking for the opening date alone finds the 2am one.
+    const hist = reports_history(ymd, ymd);
+    ok(hist.includes('NIGHT-A'), 'the 11:30pm order is on the opening date');
+    ok(hist.includes('NIGHT-B'), 'and so is the 2am one, though the clock says otherwise');
+
+    day.closeDay({});
+  });
+
+  /* ================= Section 26 — The day's order sheet ================= */
+  section('26 — Day order sheet');
+
+  const daySheet = require(path.join(dist, 'services', 'daySheet'));
+  const dayIpc = require(path.join(dist, 'ipc', 'day'));
+
+  let sheetSession;
+  let sheetOrders;
+
+  test('26.1', 'The list carries EVERY order between opening and closing', () => {
+    if (day.currentSession()) day.closeDay({});
+    sheetSession = day.openDay({ opening_float: 1000 });
+
+    // One of each fate, because all three are what an owner reconciles against.
+    const paid = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(paid.id, [{ menu_item_id: D['Day Biryani'], qty: 2, modifier_ids: [] }]);
+    orders.settleOrder(paid.id, { payment_method: 'cash' });
+
+    const killed = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(killed.id, [{ menu_item_id: D['Day Burger'], qty: 1, modifier_ids: [] }]);
+    orders.voidOrder(killed.id, { reason_code: 'duplicate', note: null, staff_id: null });
+
+    const owing = orders.openOrder({ type: 'dine_in' });
+    orders.addItems(owing.id, [{ menu_item_id: D['Day Water'], qty: 1, modifier_ids: [] }]);
+
+    sheetOrders = orders.listOrdersForSession(sheetSession.id);
+    eq(sheetOrders.length, 3, 'all three are listed');
+
+    const byStatus = Object.fromEntries(sheetOrders.map((o) => [o.status, o.order_no]));
+    ok(byStatus.settled, 'the settled one is there');
+    ok(byStatus.void, 'the CANCELLED one is there — the row an owner is hunting for');
+    ok(byStatus.open, 'and the one still owing');
+
+    // Chronological, so the sheet reads like the night happened.
+    const opened = sheetOrders.map((o) => o.opened_at);
+    eq(
+      opened.join('|'),
+      [...opened].sort().join('|'),
+      'oldest first',
+    );
+    // The items travel with each row, so the sheet can count them.
+    ok(sheetOrders.every((o) => Array.isArray(o.items)), 'each row carries its items');
+  });
+
+  test('26.2', "One day's sheet never shows another day's orders", () => {
+    day.closeDay({});
+    const other = day.openDay({ opening_float: 0 });
+    const stray = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(stray.id, [{ menu_item_id: D['Day Water'], qty: 1, modifier_ids: [] }]);
+    orders.settleOrder(stray.id, { payment_method: 'cash' });
+
+    const first = orders.listOrdersForSession(sheetSession.id).map((o) => o.order_no);
+    ok(!first.includes(stray.order_no), 'the later order stays on its own day');
+    eq(orders.listOrdersForSession(other.id).length, 1, 'and shows up on that one');
+    day.closeDay({});
+  });
+
+  test('26.3', 'The sheet is an A4 DOCUMENT, not a till roll', () => {
+    const report = day.dayReport(sheetSession.id);
+    const html = daySheet.buildDaySheetHtml(report, sheetOrders);
+
+    // The whole point of this path: HTML for a normal printer, and none of the
+    // ESC/POS control bytes the thermal path emits.
+    ok(html.startsWith('<!doctype html>'), 'it is a real document');
+    ok(/@page\s*\{\s*size:\s*A4/.test(html), 'laid out for A4');
+    ok(!html.includes('\x1b'), 'no ESC/POS escape bytes anywhere near it');
+
+    ok(html.includes('Test Food Point'), 'headed with the shop name');
+    for (const o of sheetOrders) ok(html.includes(o.order_no), `lists ${o.order_no}`);
+    ok(/Cancelled/.test(html), 'says which one was cancelled');
+    ok(/UNPAID/.test(html), 'and which is still owed');
+    ok(html.includes('Opened'), 'states when the day opened');
+    ok(/thead\s*\{\s*display:\s*table-header-group/.test(html),
+      'repeats the column headers on page two');
+  });
+
+  test('26.3b', 'A CANCELLED order shows what was thrown away, not zero', () => {
+    // Cancelling marks every line void. Counting only live lines would print
+    // "0 items, Rs.0.00" against the one row an owner opens this sheet to
+    // investigate — the money that went missing.
+    const report = day.dayReport(sheetSession.id);
+    const html = daySheet.buildDaySheetHtml(report, sheetOrders);
+    const killed = sheetOrders.find((o) => o.status === 'void');
+    ok(killed, 'there is a cancelled order to check');
+    ok(killed.subtotal > 0, 'and it was worth something');
+
+    const row = html.split('<tr').find((chunk) => chunk.includes(killed.order_no));
+    ok(row, 'its row is on the sheet');
+    ok(!/>0</.test(row), 'it does NOT read as zero items');
+    ok(
+      row.includes(killed.subtotal.toFixed(2)),
+      `it carries what was lost (${killed.subtotal.toFixed(2)}), got: ${row.replace(/\s+/g, ' ')}`,
+    );
+  });
+
+  test('26.4', 'A COUNTER cannot read margin off the sheet', () => {
+    // The same rule as the screen and the slip: gross profit is the owner's.
+    adminSession.lockAdmin();
+    const counter = dayIpc.reportFor(sheetSession.id);
+    eq(counter.gross_profit, null, 'stripped before it reaches the sheet builder');
+    const html = daySheet.buildDaySheetHtml(counter, sheetOrders);
+    ok(!/Gross profit/.test(html), 'so no margin line is printed');
+    ok(/Sales/.test(html), 'the takings are still there — that is counter work');
+  });
+
+  test('26.5', 'An empty day still produces a sheet', () => {
+    // A day opened and closed with no trade must not crash the print path.
+    const quiet = day.openDay({ opening_float: 0 });
+    const report = day.dayReport(quiet.id);
+    const html = daySheet.buildDaySheetHtml(report, []);
+    ok(html.includes('No orders were taken'), 'it says so plainly');
+    ok(html.startsWith('<!doctype html>'), 'and is still a valid document');
+    day.closeDay({});
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

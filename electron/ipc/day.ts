@@ -8,6 +8,8 @@ import {
   unpaidOnSession,
 } from '../db/repositories/daySessions';
 import { printDayReport } from '../services/printing';
+import { printDaySheet, saveDaySheetPdf } from '../services/daySheet';
+import { listOrdersForSession } from '../db/repositories/orders';
 import { isAdmin } from '../services/adminSession';
 import { currentStaff } from '../services/session';
 import type { DayReport } from '../../shared/types';
@@ -79,6 +81,28 @@ export function registerDayHandlers(): void {
 
   handle('day:report', (_e, id) => reportFor(asId(id, 'Day')));
 
-  /** Reprint a past day's slip, for whoever lost the first one. */
+  /** Reprint a past day's till slip, for whoever lost the first one. */
   handle('day:print', async (_e, id) => printDayReport(reportFor(asId(id, 'Day'))));
+
+  /**
+   * The day's orders, and the A4 sheet built from them.
+   *
+   * Kept apart from `day:print` on purpose. That one is the 80mm till slip;
+   * these go to an ordinary printer, because a night's worth of orders is a
+   * document to file rather than a receipt to hand over.
+   *
+   * The report travels through `reportFor`, so a counter's sheet carries no
+   * margin for exactly the same reason their screen and their slip do not.
+   */
+  handle('day:orders', (_e, id) => listOrdersForSession(asId(id, 'Day')));
+
+  handle('day:sheetPrint', async (_e, id) => {
+    const sessionId = asId(id, 'Day');
+    return printDaySheet(reportFor(sessionId), listOrdersForSession(sessionId));
+  });
+
+  handle('day:sheetPdf', async (_e, id) => {
+    const sessionId = asId(id, 'Day');
+    return saveDaySheetPdf(reportFor(sessionId), listOrdersForSession(sessionId));
+  });
 }

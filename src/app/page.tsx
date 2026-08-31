@@ -7,7 +7,7 @@ import { useApp } from '@/components/AppContext';
 import { Card, Empty, Stat } from '@/components/ui';
 import { api } from '@/lib/api';
 import { strings } from '@/lib/strings';
-import { hourLabel, money, qty, time, todayIso } from '@/lib/format';
+import { dateTime, hourLabel, money, qty, time } from '@/lib/format';
 import { ORDER_TYPE_LABELS, type DashboardSummary, type SalesByHour } from '../../shared/types';
 
 /**
@@ -28,8 +28,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const today = todayIso();
-    Promise.all([api.reports.dashboard(today), api.reports.byHour(today, today)])
+    // No date is passed on purpose: the backend answers for the OPEN trading
+    // day when there is one, and only falls back to today's date when the shop
+    // has not opened a day. Asking for `todayIso()` here would have re-imposed
+    // the midnight boundary the trading day exists to escape.
+    Promise.all([api.reports.dashboard(), api.reports.tradingHours()])
       .then(([today_, byHour]) => {
         setSummary(today_);
         setHours(byHour);
@@ -41,30 +44,56 @@ export default function DashboardPage() {
   }, [toast]);
 
   /**
-   * The trading day as a bar per hour.
+   * The trading day as a bar per hour, in TRADING order.
    *
-   * Drawn across a fixed 9am–midnight window rather than only the hours that
-   * happen to have sales, so the shape of the day is comparable from one day
-   * to the next — and so the chart has a frame to sit in before the first
-   * order is taken.
+   * A shop that opens at 10am and closes at 3am runs 10, 11, ... 23, 0, 1, 2 —
+   * so the axis starts at the hour the day was opened and wraps past midnight
+   * rather than stopping dead at 11pm, which would have hidden the last three
+   * hours of every night.
+   *
+   * The window is drawn whole rather than only the hours that happen to have
+   * sales, so the shape of the day is comparable from one night to the next
+   * and the chart has a frame to sit in before the first order is taken.
    */
   const chart = useMemo(() => {
-    const START = 9;
-    const END = 23;
     const byHour = new Map(hours.map((row) => [row.hour, row.sales]));
+
+    // Where the axis starts: the hour the day was opened, or 9am when no day
+    // is open and the chart is just showing a calendar date.
+    const start = summary?.session_opened_at
+      ? Number(summary.session_opened_at.slice(11, 13))
+      : 9;
+
+    /**
+     * How many hours to draw. Long enough to reach the last hour that actually
+     * took money — so a night that ran to 3am shows its 3am bar — with a
+     * 15-hour floor so the frame never collapses to a stub on a quiet evening.
+     * Capped at 24 so a stale session cannot draw the axis twice round.
+     */
+    const span = (h: number) => (h - start + 24) % 24;
+    const latest = hours.length ? Math.max(...hours.map((row) => span(row.hour))) : 0;
+    const length = Math.min(24, Math.max(15, latest + 1));
+
     const bars = [];
-    for (let hour = START; hour <= END; hour += 1) {
+    for (let i = 0; i < length; i += 1) {
+      const hour = (start + i) % 24;
       bars.push({ hour, sales: byHour.get(hour) ?? 0 });
     }
     const peak = Math.max(1, ...bars.map((b) => b.sales));
     return { bars, peak };
-  }, [hours]);
+  }, [hours, summary]);
 
   return (
     <AppShell
       rich
       title={strings.dashboard.title}
-      subtitle={summary ? summary.date : undefined}
+      subtitle={
+        summary
+          ? summary.session_opened_at
+            ? strings.dashboard.tradingDay(dateTime(summary.session_opened_at))
+            : summary.date
+          : undefined
+      }
       actions={
         <Link href="/order/" className="btn primary big">
           {strings.dashboard.newOrder}

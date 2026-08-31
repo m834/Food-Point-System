@@ -1,5 +1,6 @@
 import { getDb } from '../connection';
 import { money, todayIso } from '../money';
+import { businessDate } from '../businessDate';
 import type {
   BestSeller,
   CancellationByStaff,
@@ -19,8 +20,64 @@ import { CANCEL_REASON_LABELS, type CancelReasonCode } from '../../../shared/typ
  * so nothing here recomputes money from the live menu.
  */
 
+/**
+ * What the dashboard is counting.
+ *
+ * A shop that opens at 10am and closes at 3am trades straight through
+ * midnight, so "today" cannot mean the calendar's today: at 12:01am the tiles
+ * would drop to zero in the middle of the busiest hour of the night and the
+ * owner would be told the shift had earned nothing. When a day is open the
+ * dashboard follows THAT day, exactly as the day report does.
+ *
+ * With no day open there is nothing to follow and the calendar date stands —
+ * which is also what an explicit date request means.
+ */
+interface Scope {
+  /** Predicate on `orders`; `alias` is '' or 'o.' depending on the query. */
+  clause: (alias: string) => string;
+  param: string | number;
+  /** The day these figures describe, for the screen to label. */
+  date: string;
+  /** Set only when the figures cover an open trading day. */
+  session_opened_at: string | null;
+}
+
+function dateScope(date: string): Scope {
+  return {
+    clause: (alias) => `date(${alias}settled_at) = ?`,
+    param: date,
+    date,
+    session_opened_at: null,
+  };
+}
+
+function sessionScope(session: { id: number; opened_at: string }): Scope {
+  return {
+    clause: (alias) => `${alias}session_id = ?`,
+    param: session.id,
+    date: session.opened_at.slice(0, 10),
+    session_opened_at: session.opened_at,
+  };
+}
+
+/** The dashboard for one calendar date. */
 export function dashboard(date = todayIso()): DashboardSummary {
+  return dashboardFor(dateScope(date));
+}
+
+/**
+ * The dashboard for an open trading day — 10am to 3am counted as one thing.
+ * Takes the session rather than an id so the label can name when it opened.
+ */
+export function dashboardForSession(session: { id: number; opened_at: string }): DashboardSummary {
+  return dashboardFor(sessionScope(session));
+}
+
+function dashboardFor(scope: Scope): DashboardSummary {
   const db = getDb();
+  const { param } = scope;
+  const where = scope.clause('');
+  const whereO = scope.clause('o.');
 
   const totals = db
     .prepare(
@@ -28,9 +85,9 @@ export function dashboard(date = todayIso()): DashboardSummary {
               COALESCE(SUM(profit), 0) AS profit_total,
               COUNT(*)                 AS order_count
          FROM orders
-        WHERE status = 'settled' AND date(settled_at) = ?`,
+        WHERE status = 'settled' AND ${where}`,
     )
-    .get(date) as { sales_total: number; profit_total: number; order_count: number };
+    .get(param) as { sales_total: number; profit_total: number; order_count: number };
 
   const open = db
     .prepare(
@@ -45,38 +102,39 @@ export function dashboard(date = todayIso()): DashboardSummary {
       `SELECT oi.item_name AS name, SUM(oi.qty) AS qty
          FROM order_items oi
          JOIN orders o ON o.id = oi.order_id
-        WHERE o.status = 'settled' AND date(o.settled_at) = ?
+        WHERE o.status = 'settled' AND ${whereO}
           AND oi.kitchen_status != 'void'
         GROUP BY oi.item_name
         ORDER BY qty DESC
         LIMIT 1`,
     )
-    .get(date) as { name: string; qty: number } | undefined;
+    .get(param) as { name: string; qty: number } | undefined;
 
   const busiestHour = db
     .prepare(
       `SELECT CAST(strftime('%H', settled_at) AS INTEGER) AS hour,
               COALESCE(SUM(total), 0) AS sales
          FROM orders
-        WHERE status = 'settled' AND date(settled_at) = ?
+        WHERE status = 'settled' AND ${where}
         GROUP BY hour
         ORDER BY sales DESC
         LIMIT 1`,
     )
-    .get(date) as { hour: number; sales: number } | undefined;
+    .get(param) as { hour: number; sales: number } | undefined;
 
   const recent = db
     .prepare(
       `SELECT id, order_no, type, settled_at, total
          FROM orders
-        WHERE status = 'settled' AND date(settled_at) = ?
+        WHERE status = 'settled' AND ${where}
         ORDER BY settled_at DESC
         LIMIT 8`,
     )
-    .all(date) as DashboardSummary['recent'];
+    .all(param) as DashboardSummary['recent'];
 
   return {
-    date,
+    date: scope.date,
+    session_opened_at: scope.session_opened_at,
     sales_total: money(totals.sales_total),
     profit_total: money(totals.profit_total),
     order_count: totals.order_count,
@@ -99,7 +157,7 @@ export function range(from: string, to: string): RangeTotals {
               COALESCE(SUM(extras_total), 0)    AS extras_total,
               COUNT(*)                          AS order_count
          FROM orders
-        WHERE status = 'settled' AND date(settled_at) BETWEEN ? AND ?`,
+        WHERE status = 'settled' AND ${businessDate('', 'settled_at')} BETWEEN ? AND ?`,
     )
     .get(from, to) as {
     sales_total: number;
@@ -111,12 +169,12 @@ export function range(from: string, to: string): RangeTotals {
 
   const days = db
     .prepare(
-      `SELECT date(settled_at)         AS date,
+      `SELECT ${businessDate('', 'settled_at')} AS date,
               COALESCE(SUM(total), 0)  AS sales,
               COALESCE(SUM(profit), 0) AS profit,
               COUNT(*)                 AS orders
          FROM orders
-        WHERE status = 'settled' AND date(settled_at) BETWEEN ? AND ?
+        WHERE status = 'settled' AND ${businessDate('', 'settled_at')} BETWEEN ? AND ?
         GROUP BY date
         ORDER BY date`,
     )
@@ -147,7 +205,7 @@ export function salesByType(from: string, to: string): SalesByType[] {
               COALESCE(SUM(profit), 0)          AS profit,
               COALESCE(SUM(delivery_charge), 0) AS delivery_charge
          FROM orders
-        WHERE status = 'settled' AND date(settled_at) BETWEEN ? AND ?
+        WHERE status = 'settled' AND ${businessDate('', 'settled_at')} BETWEEN ? AND ?
         GROUP BY type
         ORDER BY sales DESC`,
     )
@@ -163,7 +221,7 @@ export function bestSellers(from: string, to: string, limit = 20): BestSeller[] 
               SUM(oi.line_total)  AS revenue
          FROM order_items oi
          JOIN orders o ON o.id = oi.order_id
-        WHERE o.status = 'settled' AND date(o.settled_at) BETWEEN ? AND ?
+        WHERE o.status = 'settled' AND ${businessDate('o.', 'o.settled_at')} BETWEEN ? AND ?
           AND oi.kitchen_status != 'void'
         GROUP BY oi.item_name
         ORDER BY qty DESC
@@ -172,7 +230,28 @@ export function bestSellers(from: string, to: string, limit = 20): BestSeller[] 
     .all(from, to, limit) as BestSeller[];
 }
 
-/** The staffing view: when the rush actually is. */
+/**
+ * The hour-by-hour shape of ONE trading day, however far past midnight it ran.
+ *
+ * Hours come back as plain 0-23 clock hours; putting them in trading order
+ * (10, 11, ... 23, 0, 1, 2) is the screen's job, since only the screen knows
+ * where to start the axis.
+ */
+export function salesByHourForSession(sessionId: number): SalesByHour[] {
+  return getDb()
+    .prepare(
+      `SELECT CAST(strftime('%H', settled_at) AS INTEGER) AS hour,
+              COUNT(*)                AS order_count,
+              COALESCE(SUM(total), 0) AS sales
+         FROM orders
+        WHERE status = 'settled' AND session_id = ?
+        GROUP BY hour
+        ORDER BY hour`,
+    )
+    .all(sessionId) as SalesByHour[];
+}
+
+/** The staffing view across a range of days: when the rush actually is. */
 export function salesByHour(from: string, to: string): SalesByHour[] {
   return getDb()
     .prepare(
@@ -180,7 +259,7 @@ export function salesByHour(from: string, to: string): SalesByHour[] {
               COUNT(*)                AS order_count,
               COALESCE(SUM(total), 0) AS sales
          FROM orders
-        WHERE status = 'settled' AND date(settled_at) BETWEEN ? AND ?
+        WHERE status = 'settled' AND ${businessDate('', 'settled_at')} BETWEEN ? AND ?
         GROUP BY hour
         ORDER BY hour`,
     )
@@ -202,7 +281,7 @@ export function voids(from: string, to: string): VoidRecord[] {
               COALESCE(o.void_reason, '') AS reason,
               o.voided_at
          FROM orders o
-        WHERE o.status = 'void' AND date(o.voided_at) BETWEEN ? AND ?`,
+        WHERE o.status = 'void' AND ${businessDate('o.', 'o.voided_at')} BETWEEN ? AND ?`,
     )
     .all(from, to) as VoidRecord[];
 
@@ -262,7 +341,7 @@ export function cancellations(from: string, to: string): CancellationsReport {
          FROM orders o
          LEFT JOIN tables t ON t.id = o.table_id
          LEFT JOIN staff s ON s.id = o.voided_by_staff_id
-        WHERE o.status = 'void' AND date(o.voided_at) BETWEEN ? AND ?
+        WHERE o.status = 'void' AND ${businessDate('o.', 'o.voided_at')} BETWEEN ? AND ?
         ORDER BY o.voided_at DESC`,
     )
     .all(from, to) as Array<{
@@ -333,7 +412,7 @@ export function cancellations(from: string, to: string): CancellationsReport {
               COALESCE(SUM(CASE WHEN o.voided_was_paid = 1 THEN o.total ELSE 0 END), 0) AS paid_value
          FROM orders o
          LEFT JOIN staff s ON s.id = o.voided_by_staff_id
-        WHERE o.status = 'void' AND date(o.voided_at) BETWEEN ? AND ?
+        WHERE o.status = 'void' AND ${businessDate('o.', 'o.voided_at')} BETWEEN ? AND ?
         GROUP BY o.voided_by_staff_id, staff_name
         ORDER BY total_value DESC`,
     )
@@ -345,7 +424,7 @@ export function cancellations(from: string, to: string): CancellationsReport {
               COUNT(*) AS count,
               COALESCE(SUM(${CANCELLED_AMOUNT}), 0) AS value
          FROM orders o
-        WHERE o.status = 'void' AND date(o.voided_at) BETWEEN ? AND ?
+        WHERE o.status = 'void' AND ${businessDate('o.', 'o.voided_at')} BETWEEN ? AND ?
         GROUP BY reason_code
         ORDER BY count DESC`,
     )

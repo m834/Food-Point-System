@@ -1,10 +1,11 @@
 import { getDb } from '../connection';
-import { money, nowIso, orderNoPrefix } from '../money';
+import { dateOf, money, nowIso, orderNoPrefix } from '../money';
+import { businessDate } from '../businessDate';
 import { getItem, getModifiersByIds, getVariant } from './menu';
 import { buildDealLines } from './deals';
 import { openOrderIdForTable } from './tables';
 import { rememberFromOrder } from './customers';
-import { currentSessionId } from './daySessions';
+import { currentSession, currentSessionId } from './daySessions';
 import {
   extrasCost,
   listOrderExtras,
@@ -120,16 +121,20 @@ export function listOpenOrders(): OpenOrderSummary[] {
  * The order history — what the counter reaches for when a customer comes back
  * asking for their bill again.
  *
- * Dated by when the order CLOSED, not when it opened, so an order that ran
- * past midnight files under the day it was actually paid — the same day it
- * counts towards in every report.
+ * Dated by the TRADING day it belongs to, so a night that ran from 10am to
+ * 3am is one date in this list rather than two. An order taken with no day
+ * open has no trading day to borrow, and falls back to when it closed — not
+ * when it opened, so an order that ran past midnight still files under the day
+ * it was actually paid.
  */
 export function listOrders(
   from: string,
   to: string,
   status?: 'settled' | 'void' | 'open',
 ): Order[] {
-  const where = ["date(COALESCE(o.settled_at, o.voided_at, o.opened_at)) BETWEEN ? AND ?"];
+  const where = [
+    `${businessDate('o.', 'COALESCE(o.settled_at, o.voided_at, o.opened_at)')} BETWEEN ? AND ?`,
+  ];
   const params: unknown[] = [from, to];
 
   if (status) {
@@ -164,10 +169,26 @@ export function listOrders(
 export function amountDueFor(order: Order): number {
   const live = order.items.filter((item) => item.kitchen_status !== 'void');
   const subtotal = money(live.reduce((sum, item) => sum + item.line_total, 0));
-  const serviceCharge = money(serviceChargeFor(subtotal));
+  const serviceCharge = money(serviceChargeFor(subtotal, order.type));
   const delivery = money(order.delivery_charge ?? 0);
   const extras = money(order.extras_total ?? 0);
   return money(subtotal + serviceCharge + delivery + extras);
+}
+
+/**
+ * Every order taken on one trading day, in the order it was opened.
+ *
+ * All of them, whatever became of them: settled, cancelled, and still unpaid.
+ * This is the list an owner reconciles a night against, so an order missing
+ * from it because it was voided is exactly the order they were looking for.
+ * The status travels with each row so the sheet can say which is which.
+ */
+export function listOrdersForSession(sessionId: number): Order[] {
+  const rows = getDb()
+    .prepare(`${ORDER_SELECT} WHERE o.session_id = ? ORDER BY o.opened_at ASC, o.id ASC`)
+    .all(sessionId) as OrderRow[];
+
+  return rows.map(hydrate);
 }
 
 /**
@@ -195,16 +216,36 @@ export function listUnpaidOrders(): UnpaidOrder[] {
  * ------------------------------------------------------------------ */
 
 /**
- * YYYYMMDD-NNN, restarting at 001 each business day.
+ * The YYYYMMDD group an order number belongs to.
+ *
+ * The day that is OPEN decides this, not the wall clock. A shop that opens at
+ * 10am and closes at 3am trades straight through midnight, and a calendar
+ * prefix restarts the sequence at 001 in the middle of the busiest hour of the
+ * night — one trading day handing out two slips numbered -001, which is what
+ * makes the counter believe the software started a new day behind their back.
+ * Anchoring to the session's opening date keeps one night's orders in one
+ * unbroken run, however far past midnight it runs.
+ *
+ * With no day open there is nothing to anchor to, and the calendar date is the
+ * honest answer — the counter may take orders without opening a day at all.
+ */
+function orderNoPrefixForNow(): string {
+  const session = currentSession();
+  return session ? dateOf(session.opened_at).replace(/-/g, '') : orderNoPrefix();
+}
+
+/**
+ * YYYYMMDD-NNN, restarting at 001 each business day — the day someone OPENED,
+ * not the calendar's.
  *
  * Called only from inside the open transaction. It reads the largest suffix
- * already issued today and adds one — deliberately not COUNT(*), which reissues
- * a number the moment an order is voided, and deliberately not computed in the
- * UI, where two cashiers tapping "new order" a second apart would collide.
- * The UNIQUE constraint on the column is the backstop.
+ * already issued under that prefix and adds one — deliberately not COUNT(*),
+ * which reissues a number the moment an order is voided, and deliberately not
+ * computed in the UI, where two cashiers tapping "new order" a second apart
+ * would collide. The UNIQUE constraint on the column is the backstop.
  */
 function nextOrderNo(): string {
-  const prefix = orderNoPrefix();
+  const prefix = orderNoPrefixForNow();
   const row = getDb()
     .prepare('SELECT MAX(order_no) AS last FROM orders WHERE order_no LIKE ?')
     .get(`${prefix}-%`) as { last: string | null };
@@ -678,7 +719,11 @@ export function settleOrder(orderId: number, input: SettleInput): Order {
     // Read from settings in the main process — never taken from the renderer.
     // Fixed rupee amount or a percentage, per the owner's setting. Read in
     // the main process, never supplied by the till.
-    const serviceCharge = money(serviceChargeFor(subtotal));
+    //
+    // Dine-in only: the order's own type decides, and it was fixed when the
+    // order was opened, so a takeaway cannot be talked into a table charge at
+    // the till.
+    const serviceCharge = money(serviceChargeFor(subtotal, order.type));
 
     /**
      * The delivery fee is read from the ORDER, not from the renderer at

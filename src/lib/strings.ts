@@ -274,6 +274,12 @@ export const strings = {
     today: 'Today',
     recent: 'Recent orders',
     newOrder: 'New order',
+    /**
+     * The shop trades 10am to 3am, so naming a date would be a lie by 12:01am.
+     * State when the day was OPENED instead — that is the boundary the figures
+     * actually use.
+     */
+    tradingDay: (opened: string) => `Trading day — open since ${opened}`,
     noSalesTitle: 'No orders yet today',
     noSalesNote: 'Takings and profit will appear here as soon as the first order is settled.',
     profitLine: (sales: string, profit: string) => `You sold ${sales} and earned ${profit} profit.`,
@@ -412,7 +418,8 @@ export const strings = {
     security: 'Voids',
     managerPin: 'Manager PIN',
     serviceChargeMode: 'Service charge',
-    serviceChargeModeHint: 'A flat amount per bill, or a percentage of it.',
+    serviceChargeModeHint:
+      'A flat amount per bill, or a percentage of it. Added to dine-in bills only — takeaway and delivery are never charged for service.',
     fixedAmount: 'Fixed amount',
     percentage: 'Percentage',
     serviceChargeAmount: 'Amount per bill',
@@ -496,6 +503,25 @@ export const strings = {
     orders: 'Orders',
     cancelled: 'Cancelled',
     serviceCharges: 'Service charges',
+    /* The order-list tab and its two ways out of the app. */
+    tabSummary: 'Summary',
+    tabOrders: 'Orders',
+    ordersOnDay: 'Every order taken between opening and closing.',
+    noOrdersOnDay: 'No orders were taken on this day.',
+    savePdf: 'Save as PDF',
+    printSheet: 'Print',
+    printSlip: 'Print slip',
+    sheetSaved: (where: string) => `Saved to ${where}`,
+    sheetPrinted: 'Sent to the printer.',
+    colOrder: 'Order',
+    colTime: 'Time',
+    colType: 'Type',
+    colWho: 'Table / customer',
+    colItems: 'Items',
+    colPaid: 'Paid',
+    colTotal: 'Total',
+    statusCancelled: 'Cancelled',
+    statusUnpaid: 'UNPAID',
     deliveryCharges: 'Delivery charges',
     cash: 'Cash',
     card: 'Card',
