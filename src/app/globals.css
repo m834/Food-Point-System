@@ -30,6 +30,8 @@
    │     a block on white but not as small text on it.                 │
    │                                                                   │
    │  2. LOGO — replace ONE file: public/logo.png                      │
+   │     ART  — replace public/dashboard-bg.jpg for the dashboard      │
+   │     backdrop, or set --dashboard-art: none to drop it entirely.   │
    │     It is referenced from a single place (components/Sidebar.tsx  │
    │     and components/Activation.tsx both read /logo.png). Drop in   │
    │     a new file with the same name and it updates everywhere:      │
@@ -72,26 +74,35 @@
      WHITE-LABEL BLOCK — the nine values to change per client
      ================================================================== */
 
-  /* Brand: a deep navy shell. Kept as space-separated channels so the
-     glass and gradient layers below can vary alpha without needing a
+  /* Brand: the Squid Game void — near-black bled through with magenta,
+     which is the show's whole visual idea. Kept as space-separated channels
+     so the glass and gradient layers below can vary alpha without needing a
      second hard-coded copy of each colour. */
-  --brand-deep-rgb: 9 20 36;
-  --brand-mid-rgb: 18 40 71;
-  --brand-soft-rgb: 32 66 110;
+  --brand-deep-rgb: 10 6 12;
+  --brand-mid-rgb: 48 8 34;
+  --brand-soft-rgb: 99 18 66;
 
-  /* Primary action + its gradient partner. Warm against the cool navy,
-     which is what keeps a food app appetising rather than corporate. */
-  --accent-rgb: 232 92 54;
-  --accent-2-rgb: 245 165 36;
+  /* Primary action + its gradient partner: the guards' hot pink. */
+  --accent-rgb: 224 16 112;
+  --accent-2-rgb: 255 92 168;
 
   /* Semantic. Never decorative — green is money, amber is attention,
-     red is stop. A cashier must be able to trust these at a glance. */
-  --success-rgb: 34 168 106;
-  --warning-rgb: 214 152 12;
-  --danger-rgb: 202 46 58;
+     red is stop. A cashier must be able to trust these at a glance.
+     Green is the players' tracksuit, which is on-theme and still reads
+     unmistakably as money.
 
-  /* The light workspace paper. */
-  --canvas-rgb: 244 246 249;
+     ACCENT vs DANGER is the pair that matters, and a pink brand is where
+     it could go wrong: "Charge" and "Void" must never be confused by a
+     cashier under pressure. Danger is therefore held at a true vermilion
+     red, well clear of the magenta — 47 DeltaE and 37 degrees of hue apart,
+     which is more than twice the separation the previous warm-red-on-navy
+     palette managed. Do not drift danger toward pink to "match". */
+  --success-rgb: 26 158 118;
+  --warning-rgb: 224 160 24;
+  --danger-rgb: 214 44 30;
+
+  /* The light workspace paper — white with the faintest rose cast. */
+  --canvas-rgb: 248 244 247;
 
   /* ==================================================================
      DERIVED — nothing below here needs editing to reskin the app
@@ -124,20 +135,23 @@
      Blur behind a price column costs legibility for nothing, and a cashier
      reads these screens for eight hours. Dark and high-contrast is fine;
      dark and frosted is not. */
-  --panel-rgb: 20 37 60;
+  --panel-rgb: 26 14 24;
 
-  --bg: rgb(13 27 46);
+  --bg: rgb(16 9 15);
   --surface: rgb(var(--panel-rgb));
-  --surface-2: rgb(28 49 76);
-  --surface-sunken: rgb(16 31 52);
+  --surface-2: rgb(38 20 34);
+  --surface-sunken: rgb(20 11 19);
   --border: rgb(255 255 255 / 0.1);
   --border-strong: rgb(255 255 255 / 0.19);
 
   /* Text on those surfaces. --text is near-white rather than pure white:
-     pure white on navy vibrates slightly at small sizes. */
-  --text: #eaf1f9;
-  --text-muted: rgb(234 241 249 / 0.64);
-  --text-faint: rgb(234 241 249 / 0.42);
+     pure white on a saturated dark ground vibrates slightly at small sizes.
+     Carries the same faint rose cast as the surfaces, so it reads as one
+     palette rather than as blue-white text dropped on a pink app.
+     17.3:1 on --bg. */
+  --text: #f7eef4;
+  --text-muted: rgb(247 238 244 / 0.64);
+  --text-faint: rgb(247 238 244 / 0.42);
 
   /* Soft tints are mixed into the PANEL, not into white — mixing with white
      on a dark surface produces a pale block that glares. */
@@ -194,6 +208,12 @@
     inset 0 1px 0 var(--glass-highlight);
 
   --sidebar-w: 246px;
+
+  /* ---- The dashboard artwork ----
+     The client's own shop image, bundled in public/ and referenced from
+     exactly one place, the same contract the logo follows. Set it to `none`
+     to go back to the pure CSS mesh. */
+  --dashboard-art: url("/dashboard-bg.jpg");
 
   /* ---- Motion. One curve, three speeds — consistency reads as care. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -291,6 +311,12 @@
 :root[data-theme="light"] .workspace.rich::before,
 :root[data-theme="light"] .activation::before {
   opacity: 0.5;
+}
+
+/* The artwork is a dark image. On paper it has to come right back or it reads
+   as a stain rather than as branding. */
+:root[data-theme="light"] .workspace.rich::after {
+  opacity: 0.07;
 }
 
 /* The logo tile is a light chip on navy; on paper it needs to stay white
@@ -786,6 +812,39 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
  * image file — it costs no bytes, never fails to load, and re-tints
  * itself automatically when the brand tokens change.
  */
+/**
+ * The shop's own artwork, sitting behind the dashboard.
+ *
+ * A real image file, which the CSS mesh below deliberately is not — that mesh
+ * is decoration and can be drawn from tokens, whereas this is the client's
+ * BRANDING and cannot. It is bundled in public/ and loaded from disk over the
+ * app:// protocol, so "downloads nothing, cannot fail to load" still holds.
+ *
+ * Held well back on purpose. The dashboard's job is to state the day's
+ * takings, and a photograph at full strength behind a stat tile is a
+ * legibility bug however good it looks in a screenshot. It is anchored right
+ * and masked away toward the left, where the tiles and the chart live, so a
+ * number is never read across a face.
+ */
+.workspace.rich::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image: var(--dashboard-art);
+  background-repeat: no-repeat;
+  /* Full bleed, filling the whole dashboard. */
+  background-position: center;
+  background-size: cover;
+  /* The one number that matters here. The dashboard's job is to state the
+     day's takings, so the art has to sit far enough back that a stat tile
+     and a small table row stay readable across it — the brand is the ground,
+     never the subject. Raise this and the recent-orders table is the first
+     thing to suffer. */
+  opacity: 0.3;
+  pointer-events: none;
+}
+
 .workspace.rich::before {
   content: "";
   position: absolute;
