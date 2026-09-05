@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/AppShell';
 import { useApp } from '@/components/AppContext';
 import { Badge, Card, Empty, Field, Modal, Notice } from '@/components/ui';
-import { IconPlus, IconTrash } from '@/components/icons';
+import { IconEdit, IconPlus, IconTrash } from '@/components/icons';
 import { api } from '@/lib/api';
 import { strings } from '@/lib/strings';
 import { moneyShort } from '@/lib/format';
@@ -91,26 +91,36 @@ export default function TablesPage() {
       ) : (
         <div className="floor-grid">
           {tables.map((table) => (
-            <button
-              key={table.id}
-              className={`table-card${table.open_order_id ? ' occupied' : ''}`}
-              onClick={() => tapTable(table)}
-            >
-              <div className="row-between">
-                <span className="table-card-name">{table.name}</span>
-                <Badge kind={table.open_order_id ? 'accent' : 'neutral'}>
-                  {table.open_order_id ? strings.tables.occupied : strings.tables.free}
-                </Badge>
-              </div>
-              <div className="tiny muted">
-                {[table.area, table.seats ? `${table.seats} seats` : null]
-                  .filter(Boolean)
-                  .join(' · ') || ' '}
-              </div>
-              <div className="table-card-total">
-                {table.open_order_id ? moneyShort(table.running_total) : ' '}
-              </div>
-            </button>
+            <div key={table.id} className="table-cell">
+              <button
+                className={`table-card${table.open_order_id ? ' occupied' : ''}`}
+                onClick={() => tapTable(table)}
+              >
+                <div className="row-between">
+                  <span className="table-card-name">{table.name}</span>
+                  <Badge kind={table.open_order_id ? 'accent' : 'neutral'}>
+                    {table.open_order_id ? strings.tables.occupied : strings.tables.free}
+                  </Badge>
+                </div>
+                <div className="tiny muted">
+                  {[table.area, table.seats ? `${table.seats} seats` : null]
+                    .filter(Boolean)
+                    .join(' · ') || ' '}
+                </div>
+                <div className="table-card-total">
+                  {table.open_order_id ? moneyShort(table.running_total) : ' '}
+                </div>
+              </button>
+              <button
+                type="button"
+                className="table-card-edit"
+                onClick={() => setEditing(table)}
+                aria-label={`${strings.common.edit} ${table.name}`}
+                title={strings.common.edit}
+              >
+                <IconEdit size={15} />
+              </button>
+            </div>
           ))}
         </div>
       )}

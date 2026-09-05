@@ -87,6 +87,15 @@ export function IconPlus({ size = 18 }: Props) {
   );
 }
 
+export function IconEdit({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <path d="M4 20h4l10-10-4-4L4 16v4z" />
+      <path d="M14 6l4 4" />
+    </svg>
+  );
+}
+
 export function IconTrash({ size = 18 }: Props) {
   return (
     <svg {...base(size)}>

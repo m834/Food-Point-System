@@ -2102,7 +2102,15 @@ table.data tbody tr:last-child td {
   gap: 13px;
 }
 
+/* The card is the order target; the pencil is a second, smaller target on top
+   of it, so editing a table is never a mis-tap during service. */
+.table-cell {
+  position: relative;
+  display: flex;
+}
+
 .table-card {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -2122,6 +2130,44 @@ table.data tbody tr:last-child td {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
   border-color: var(--text-faint);
+}
+
+.table-card-edit {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t) var(--ease), color var(--t) var(--ease),
+    background var(--t) var(--ease), border-color var(--t) var(--ease);
+}
+
+.table-cell:hover .table-card-edit,
+.table-card-edit:focus-visible {
+  opacity: 1;
+}
+
+.table-card-edit:hover {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* Touch screens have no hover to reveal it — keep the pencil permanently visible. */
+@media (hover: none) {
+  .table-card-edit {
+    opacity: 1;
+  }
 }
 
 .table-card-name {
