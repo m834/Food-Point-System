@@ -27,13 +27,28 @@ cd "$ROOT"
 # on 32-bit AND 64-bit Windows, where an x64 build refuses to start on 32-bit
 # with "This app can't run on your PC".
 #
-#   npm run dist:win           -> ia32
-#   npm run dist:win -- x64    -> x64
-ARCH="${1:-ia32}"
-if [ "$ARCH" != "ia32" ] && [ "$ARCH" != "x64" ]; then
-  echo "Architecture must be ia32 or x64, got: $ARCH" >&2
-  exit 1
-fi
+#   npm run dist:win                      -> simple, ia32
+#   npm run dist:win -- x64               -> simple, x64
+#   npm run dist:win:branded              -> branded, ia32
+#   npm run dist:win:branded -- x64       -> branded, x64
+#
+# BRANDED vs SIMPLE is the product decision, not a code branch. A branded build
+# gets the Appearance screen, where the client sets their own nine colours and
+# uploads their artwork; a simple build ships the stock navy look with no such
+# screen. One flag, read only in src/lib/branding.ts.
+ARCH="ia32"
+BRANDED=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --branded) BRANDED=1 ;;
+    ia32 | x64) ARCH="$arg" ;;
+    *)
+      echo "Unknown argument: $arg (expected ia32, x64 or --branded)" >&2
+      exit 1
+      ;;
+  esac
+done
 
 NATIVE="node_modules/better-sqlite3/build/Release/better_sqlite3.node"
 CACHE=".build-cache/win-native-$ARCH"
@@ -88,11 +103,29 @@ trap restore EXIT
 
 cp "$CACHE/build/Release/better_sqlite3.node" "$NATIVE"
 
+# The two installers must not overwrite each other in release/ — handing a shop
+# the wrong one is a support call, and they are indistinguishable once the
+# filename is gone.
+if [ "$BRANDED" = "1" ]; then
+  echo "Build: BRANDED (client can set their own colours and artwork)"
+  export NEXT_PUBLIC_FOOD_BRANDING=1
+  ARTIFACT='${productName}-Branded-Setup-${version}.exe'
+else
+  echo "Build: SIMPLE (stock look, no Appearance screen)"
+  # Set explicitly rather than left unset: an absent variable compiles to a
+  # runtime lookup that happens to be false, where "0" compiles to a literal
+  # false and the Appearance branch is dropped outright.
+  export NEXT_PUBLIC_FOOD_BRANDING=0
+  ARTIFACT='${productName}-Setup-${version}.exe'
+fi
+
 npm run build
 # npmRebuild off: electron-builder would otherwise try to rebuild native deps
 # for win32 from macOS, which needs MSVC. The binary swapped in above is
 # already the correct one.
-npx electron-builder --win --"$ARCH" --config.npmRebuild=false
+npx electron-builder --win --"$ARCH" \
+  --config.npmRebuild=false \
+  --config.win.artifactName="$ARTIFACT"
 
 echo ""
 echo "Installer:"

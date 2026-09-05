@@ -3595,6 +3595,111 @@ app.whenReady().then(async () => {
     day.closeDay({});
   });
 
+  /* ================================================================== *
+     27 — Client branding (the theme a shop sets for itself)
+     ================================================================== */
+  section('27 — Client branding');
+
+  const theme = require(path.join(ROOT, 'dist-electron', 'shared', 'theme'));
+  const images = require(path.join(dist, 'services', 'images'));
+
+  test('27.1', 'The nine brand colours survive a save and reload', () => {
+    const squid = theme.PRESETS.find((p) => p.id === 'squid').colors;
+    settingsRepo.saveSettings({ theme_colors: JSON.stringify(squid) });
+    const back = JSON.parse(settingsRepo.getAllSettings().theme_colors);
+    eq(back.accent, squid.accent, 'the accent came back exactly');
+    eq(Object.keys(back).length, 9, 'all nine came back');
+  });
+
+  test('27.2', 'A palette that is not colours cannot reach the stylesheet', () => {
+    // The realistic route in is a RESTORE: the database arrives from a file
+    // the shop was handed, so a hostile value is not hypothetical.
+    const evil = theme.sanitizeColors({
+      accent: '0 0 0; } body { display: none } :root {',
+      danger: 'red',
+      canvas: '999 999 999',
+      'brand-deep': ['9', '20', '36'],
+    });
+    eq(evil.accent, theme.DEFAULT_COLORS.accent, 'a CSS injection falls back to stock');
+    eq(evil.danger, theme.DEFAULT_COLORS.danger, 'a colour NAME is not accepted');
+    eq(evil.canvas, theme.DEFAULT_COLORS.canvas, 'out-of-range channels are refused');
+    eq(evil['brand-deep'], theme.DEFAULT_COLORS['brand-deep'], 'a non-string is refused');
+  });
+
+  test('27.3', 'Generated CSS contains only numbers the parser produced', () => {
+    const css = theme.themeToCss(
+      { colors: theme.sanitizeColors({ accent: '1 2 3; } * { color: red' }), art: theme.DEFAULT_ART },
+      null,
+    );
+    ok(!css.includes('color: red'), 'the injected rule is gone');
+    ok(css.includes('--accent-rgb:'), 'and a real accent token is still written');
+    ok(css.includes('--dashboard-art: none'), 'no artwork means none, not an empty url()');
+  });
+
+  test('27.3b', 'The artwork sliders reach BOTH themes, not just the dark one', () => {
+    // Regression: the veil used to be emitted as a finished color-mix(), which
+    // the light theme overrode at higher specificity — so the slider moved and
+    // nothing happened on paper. It is emitted as a bare number now, and
+    // globals.css derives each theme's veil from it.
+    const css = theme.themeToCss(
+      { colors: theme.DEFAULT_COLORS, art: { file: 'bg.jpg', opacity: 55, veil: 70 } },
+      'app://foodpoint/media/theme/bg.jpg',
+    );
+    ok(css.includes('--workspace-art-veil-pct: 70;'), 'the veil is a plain number');
+    ok(!css.includes('color-mix'), 'and not a finished colour that a theme can outrank');
+    ok(css.includes('--dashboard-art-opacity: 0.55;'), 'strength is a 0-1 fraction');
+  });
+
+  test('27.4', 'The artwork is a filename in the shop\'s own folder, never a path', () => {
+    eq(theme.sanitizeArt({ file: '../../../etc/passwd' }).file, '', 'a path escape is refused');
+    eq(theme.sanitizeArt({ file: 'http://x/y.jpg' }).file, '', 'a URL is refused — the app is offline');
+    eq(theme.sanitizeArt({ file: 'shop.exe' }).file, '', 'a non-image is refused');
+    eq(theme.sanitizeArt({ file: 'backdrop.jpg' }).file, 'backdrop.jpg', 'a plain filename is kept');
+  });
+
+  test('27.5', 'The app:// handler will not serve artwork from outside the folder', () => {
+    eq(images.resolveImage('theme', '../logo/shop.png'), null, 'no climbing out of upload/theme');
+    eq(images.resolveImage('theme', 'nothing-here.jpg'), null, 'a missing file is not served');
+    ok(images.IMAGE_KINDS.includes('theme'), 'and theme art has its own folder');
+  });
+
+  test('27.6', 'Artwork strength cannot be pushed outside 0-100', () => {
+    // The sliders are bounded, but a restored database is not.
+    eq(theme.sanitizeArt({ file: 'a.jpg', opacity: 900 }).opacity, 100, 'clamped at the top');
+    eq(theme.sanitizeArt({ file: 'a.jpg', veil: -40 }).veil, 0, 'clamped at the bottom');
+    eq(theme.sanitizeArt({ file: 'a.jpg', opacity: 'lots' }).opacity, 30, 'nonsense falls back');
+  });
+
+  test('27.7', 'Charge and Void can never be confused on a shipped preset', () => {
+    // The whole reason the guard exists: a cashier under pressure must not
+    // mistake the primary action for the destructive one.
+    for (const preset of theme.PRESETS) {
+      const gap = theme.deltaE(preset.colors.accent, preset.colors.danger);
+      ok(gap >= 20, `preset "${preset.id}" separates them by only ${gap.toFixed(0)}`);
+      eq(theme.checkColors(preset.colors).length, 0, `preset "${preset.id}" trips no guard`);
+    }
+  });
+
+  test('27.8', 'A dangerous palette IS reported to the owner', () => {
+    const bad = {
+      ...theme.DEFAULT_COLORS,
+      accent: '224 16 112',
+      danger: '236 60 140', // near-identical pink
+      canvas: '20 20 20', // black paper under black text
+    };
+    const warned = theme.checkColors(bad).map((w) => w.token);
+    ok(warned.includes('danger'), 'Charge/Void being alike is called out');
+    ok(warned.includes('canvas'), 'unreadable workspace paper is called out');
+  });
+
+  test('27.9', 'A shop with no branding set gets the stock look', () => {
+    settingsRepo.saveSettings({ theme_colors: '' });
+    eq(settingsRepo.getAllSettings().theme_colors, '', 'nothing is stored');
+    // sanitizeColors of nothing is the stock palette, which is what the
+    // renderer falls back to — a blank setting is normal, not an error.
+    eq(theme.sanitizeColors(null).accent, theme.DEFAULT_COLORS.accent, 'and stock is what shows');
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   const pad = (s, n) => String(s).padEnd(n);

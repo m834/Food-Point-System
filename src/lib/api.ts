@@ -60,8 +60,8 @@ export function hasBridge(): boolean {
   return Boolean((globalThis as unknown as { api?: unknown }).api);
 }
 
-/** Which upload folder a photo belongs in. */
-export type ImageKind = 'category' | 'menu-item' | 'deal' | 'logo';
+/** Which upload folder a picture belongs in. */
+export type ImageKind = 'category' | 'menu-item' | 'deal' | 'logo' | 'theme';
 
 /** Build the app:// URL for a stored photo basename. */
 export function imageUrl(kind: ImageKind, file: string): string {

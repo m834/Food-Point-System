@@ -5,6 +5,8 @@ import { AppShell } from '@/components/AppShell';
 import { useApp } from '@/components/AppContext';
 import { Card, Field, Modal, Notice } from '@/components/ui';
 import { ImagePicker } from '@/components/ImagePicker';
+import { AppearanceSettings } from '@/components/AppearanceSettings';
+import { BRANDING_ENABLED } from '@/lib/branding';
 import { SlipPreview } from '@/components/SlipPreview';
 import { StaffManager } from '@/components/StaffManager';
 import { ExtrasManager } from '@/components/ExtrasManager';
@@ -192,6 +194,16 @@ export default function SettingsPage() {
             />
           </div>
         </Card>
+
+        {/* --- the client's own brand. A simple build has no such card, and
+                BRANDING_ENABLED is a build-time literal, so this whole branch
+                is dropped from that bundle. --- */}
+        {BRANDING_ENABLED ? (
+          <Card>
+            <h2 style={{ marginBottom: 4 }}>{strings.appearance.title}</h2>
+            <AppearanceSettings values={values} set={set} />
+          </Card>
+        ) : null}
 
         {/* --- packaging the counter can add to any order --- */}
         <Card>

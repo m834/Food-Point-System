@@ -12,6 +12,7 @@ import { dataDir } from '../db/connection';
  *   <userData>/upload/menu-item/pizza_crown_crust.jpg
  *   <userData>/upload/deal/deal_01.jpg
  *   <userData>/upload/logo/shop-logo.png      <- the shop's own mark
+ *   <userData>/upload/theme/backdrop.jpg      <- the client's branding art
  *
  * Two reasons the folders are split rather than one flat pile. A shop dropping
  * in fifty photos from their designer can keep the category shots separate
@@ -29,8 +30,12 @@ import { dataDir } from '../db/connection';
 
 const ALLOWED = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 
-/** The three kinds of thing that can carry a photo. */
-export const IMAGE_KINDS = ['category', 'menu-item', 'deal', 'logo'] as const;
+/**
+ * The kinds of thing that can carry a picture. `theme` is the client's own
+ * background artwork, which is branding rather than a photo OF anything — it
+ * keeps its own folder so a shop clearing out dish photos cannot wipe it.
+ */
+export const IMAGE_KINDS = ['category', 'menu-item', 'deal', 'logo', 'theme'] as const;
 export type ImageKind = (typeof IMAGE_KINDS)[number];
 
 export function isImageKind(value: unknown): value is ImageKind {
@@ -96,7 +101,12 @@ export function listImages(kind: ImageKind): string[] {
  */
 export async function chooseImage(kind: ImageKind): Promise<{ file: string } | null> {
   const result = await dialog.showOpenDialog({
-    title: kind === 'category' ? 'Choose a category photo' : 'Choose a photo',
+    title:
+      kind === 'category'
+        ? 'Choose a category photo'
+        : kind === 'theme'
+          ? 'Choose the background artwork'
+          : 'Choose a photo',
     properties: ['openFile'],
     filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
   });

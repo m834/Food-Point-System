@@ -530,6 +530,31 @@ export const strings = {
     topItems: 'Best sellers',
   },
 
+  appearance: {
+    title: 'Appearance',
+    hint:
+      'The colours and artwork below apply to every screen in the app — the ' +
+      'sidebar, the order screen, badges, charts and the dashboard.',
+    preset: 'Ready-made themes',
+    presetHint: 'Start from one of these, then adjust anything you want.',
+    custom: 'Your own',
+    colours: 'Brand colours',
+    coloursHint:
+      'Nine colours drive the whole app. Everything else is worked out from them.',
+    warningTitle: 'Worth checking before you save:',
+    artwork: 'Background artwork',
+    artworkHint:
+      'Your own image, stored on this computer. Never loaded from the internet.',
+    artOpacity: 'Strength on the dashboard',
+    artOpacityHint: 'The dashboard is looked at. Higher shows more of the image.',
+    artVeil: 'Held back on working screens',
+    artVeilHint:
+      'The order screen and reports are read all day, so the artwork sits ' +
+      'further back there. Higher hides more of it.',
+    liveHint: 'Changes preview live. Save to keep them.',
+    reset: 'Reset to the standard look',
+  },
+
   common: {
     save: 'Save',
     cancel: 'Cancel',

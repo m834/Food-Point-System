@@ -6,12 +6,19 @@
    │  THEME NOTE — HOW TO WHITE-LABEL THIS APP FOR A NEW CLIENT        │
    ├───────────────────────────────────────────────────────────────────┤
    │                                                                   │
-   │  1. COLOURS — edit the WHITE-LABEL BLOCK below (this file only).  │
-   │     Nine values control the entire app. Everything else in this   │
-   │     file is derived from them with color-mix(), so changing one   │
+   │  1. COLOURS — nine values control the entire app. Everything else │
+   │     in this file is derived from them with color-mix(), so one    │
    │     value reskins every screen, badge, chart bar and button that  │
    │     relates to it. There are NO colour literals anywhere else in  │
    │     this file, and none in any .tsx component.                    │
+   │                                                                   │
+   │     In a BRANDED build the client sets these nine from Settings   │
+   │     and they are written onto :root at runtime — see              │
+   │     shared/theme.ts and components/ThemeStyle.tsx. The values in  │
+   │     the block below are then the fallback, and the only palette a │
+   │     SIMPLE build ever has. Edit them to change the stock look for │
+   │     every client at once; to change ONE client's look, use the    │
+   │     Appearance screen or add a preset to shared/theme.ts.         │
    │                                                                   │
    │       --brand-deep   darkest navy — sidebar + dashboard base      │
    │       --brand-mid    gradient partner for the above               │
@@ -30,8 +37,9 @@
    │     a block on white but not as small text on it.                 │
    │                                                                   │
    │  2. LOGO — replace ONE file: public/logo.png                      │
-   │     ART  — replace public/dashboard-bg.jpg for the dashboard      │
-   │     backdrop, or set --dashboard-art: none to drop it entirely.   │
+   │     ART  — the dashboard/workspace backdrop is NOT bundled. The   │
+   │     client uploads it in Settings and it is served from their     │
+   │     own upload folder; the app ships with none.                   │
    │     It is referenced from a single place (components/Sidebar.tsx  │
    │     and components/Activation.tsx both read /logo.png). Drop in   │
    │     a new file with the same name and it updates everywhere:      │
@@ -74,35 +82,32 @@
      WHITE-LABEL BLOCK — the nine values to change per client
      ================================================================== */
 
-  /* Brand: the Squid Game void — near-black bled through with magenta,
-     which is the show's whole visual idea. Kept as space-separated channels
-     so the glass and gradient layers below can vary alpha without needing a
-     second hard-coded copy of each colour. */
-  --brand-deep-rgb: 10 6 12;
-  --brand-mid-rgb: 48 8 34;
-  --brand-soft-rgb: 99 18 66;
+  /* Brand. Kept as space-separated channels so the glass and gradient layers
+     below can vary alpha without needing a second hard-coded copy of each
+     colour — and so a branded build can override the channels alone. */
+  --brand-deep-rgb: 9 20 36;
+  --brand-mid-rgb: 18 40 71;
+  --brand-soft-rgb: 32 66 110;
 
-  /* Primary action + its gradient partner: the guards' hot pink. */
-  --accent-rgb: 224 16 112;
-  --accent-2-rgb: 255 92 168;
+  /* Primary action + its gradient partner. */
+  --accent-rgb: 232 92 54;
+  --accent-2-rgb: 245 165 36;
 
   /* Semantic. Never decorative — green is money, amber is attention,
      red is stop. A cashier must be able to trust these at a glance.
-     Green is the players' tracksuit, which is on-theme and still reads
-     unmistakably as money.
 
-     ACCENT vs DANGER is the pair that matters, and a pink brand is where
-     it could go wrong: "Charge" and "Void" must never be confused by a
-     cashier under pressure. Danger is therefore held at a true vermilion
-     red, well clear of the magenta — 47 DeltaE and 37 degrees of hue apart,
-     which is more than twice the separation the previous warm-red-on-navy
-     palette managed. Do not drift danger toward pink to "match". */
-  --success-rgb: 26 158 118;
-  --warning-rgb: 224 160 24;
-  --danger-rgb: 214 44 30;
+     ACCENT vs DANGER is the pair that matters: "Charge" and "Void" must never
+     be confused by a cashier under pressure. Now that a client can set both
+     from Settings, that is no longer a matter of taste and discipline — it is
+     measured. checkColors() in shared/theme.ts refuses to let the pair drift
+     within a perceptual distance of 20, and warns in the Appearance screen
+     before the shop is living with it. */
+  --success-rgb: 34 168 106;
+  --warning-rgb: 214 152 12;
+  --danger-rgb: 202 46 58;
 
-  /* The light workspace paper — white with the faintest rose cast. */
-  --canvas-rgb: 248 244 247;
+  /* The light workspace paper. */
+  --canvas-rgb: 244 246 249;
 
   /* ==================================================================
      DERIVED — nothing below here needs editing to reskin the app
@@ -210,18 +215,36 @@
   --sidebar-w: 246px;
 
   /* ---- The shop artwork ----
-     The client's own image, bundled in public/ and referenced from exactly
-     one place, the same contract the logo follows. Set it to `none` to go
-     back to the pure CSS mesh. */
-  --dashboard-art: url("/dashboard-bg.jpg");
+     `none` is the real default: the app ships with no image and falls back to
+     the pure CSS mesh. A branded build overrides this token at runtime with
+     the file the client uploaded in Settings, served from their own upload
+     folder over app:// — nothing is ever fetched, so the app stays offline by
+     construction. See themeToCss() in shared/theme.ts. */
+  --dashboard-art: none;
+
+  /* Artwork strength on the dashboard, overridden alongside the image. The
+     dashboard's job is to state the day's takings, so the art has to sit far
+     enough back that a stat tile and a small table row stay readable across
+     it — the brand is the ground, never the subject. */
+  --dashboard-art-opacity: 0.3;
 
   /* How much of the ground is painted back OVER the artwork on the working
      screens. The dashboard is looked AT and carries the art at full strength;
      the order screen, the menu and the reports are looked THROUGH for eight
      hours, and their small dense figures have to win. This veil is what keeps
      the art present there without it competing with a price column — lower
-     the percentage to show more of the image, raise it to show less. */
-  --workspace-art-veil: color-mix(in srgb, var(--bg) 90%, transparent);
+     the percentage to show more of the image, raise it to show less.
+
+     Held as a bare NUMBER rather than a finished colour so the light theme can
+     derive its own, stronger veil from whatever the client chose. When this
+     was a finished color-mix(), the light theme's own value overrode it at
+     higher specificity and the Settings slider silently did nothing on paper. */
+  --workspace-art-veil-pct: 90;
+  --workspace-art-veil: color-mix(
+    in srgb,
+    var(--bg) calc(var(--workspace-art-veil-pct) * 1%),
+    transparent
+  );
 
   /* ---- Motion. One curve, three speeds — consistency reads as care. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -323,13 +346,25 @@
 
 /* The artwork is a dark image. On paper it has to come right back or it reads
    as a stain rather than as branding — on the dashboard and on the working
-   screens alike. */
+   screens alike.
+
+   Both values are now RELATIVE to whatever the client set, rather than the
+   fixed 0.07 / 95% they used to be. That is what lets one slider in Settings
+   mean something in both themes: raising the strength raises it on paper too,
+   just far less, and the light theme can never end up showing MORE art than
+   the dark one. */
 :root[data-theme="light"] .workspace.rich::after {
-  opacity: 0.07;
+  opacity: calc(var(--dashboard-art-opacity) * 0.23);
 }
 
 :root[data-theme="light"] {
-  --workspace-art-veil: color-mix(in srgb, var(--bg) 95%, transparent);
+  /* Half of whatever is left uncovered — 90 becomes 95, and the expression
+     cannot exceed 100% however the slider is pushed. */
+  --workspace-art-veil: color-mix(
+    in srgb,
+    var(--bg) calc(100% - (100% - var(--workspace-art-veil-pct) * 1%) * 0.5),
+    transparent
+  );
 }
 
 /* The logo tile is a light chip on navy; on paper it needs to stay white
@@ -868,12 +903,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   /* Full bleed, filling the whole dashboard. */
   background-position: center;
   background-size: cover;
-  /* The one number that matters here. The dashboard's job is to state the
-     day's takings, so the art has to sit far enough back that a stat tile
-     and a small table row stay readable across it — the brand is the ground,
-     never the subject. Raise this and the recent-orders table is the first
-     thing to suffer. */
-  opacity: 0.3;
+  /* Set from Settings — raise it and the recent-orders table is the first
+     thing to suffer, which is why the slider carries that warning. */
+  opacity: var(--dashboard-art-opacity);
   pointer-events: none;
 }
 
@@ -2090,6 +2122,149 @@ table.data tbody tr:last-child td {
 .order-actions .btn {
   padding: 13px 12px;
   font-size: 14.5px;
+}
+
+/* ---------------------------------------------------------------- *
+   Appearance — the branded build's theme editor
+   ---------------------------------------------------------------- */
+
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
+}
+
+.preset-chip:hover {
+  border-color: var(--text-faint);
+}
+
+.preset-chip.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Four colours is enough to recognise a palette at chip size. */
+.preset-swatches {
+  display: inline-flex;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.preset-swatches span {
+  width: 13px;
+  height: 18px;
+}
+
+.colour-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 8px;
+}
+
+.colour-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* The row the warning is about, so a message about "Void" points at a swatch. */
+.colour-row.warned {
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+}
+
+.colour-dot {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+
+/* Chrome draws its own inset padding around the swatch; remove it so the
+   colour fills the control and reads as a solid chip. */
+.colour-dot::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.colour-dot::-webkit-color-swatch {
+  border: none;
+  border-radius: calc(var(--radius-sm) - 1px);
+}
+
+.colour-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.colour-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.colour-hex {
+  flex: none;
+  width: 92px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.theme-warnings {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.slider-row input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.slider-row input[type='range']:disabled {
+  opacity: 0.4;
+}
+
+.slider-value {
+  flex: none;
+  width: 44px;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
 }
 
 /* ---------------------------------------------------------------- *

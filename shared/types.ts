@@ -620,6 +620,25 @@ export const SETTING_KEYS = {
   shopLogo: 'shop_logo',
   /** Optional line printed under the thank-you, e.g. a return policy. */
   receiptFooter: 'receipt_footer',
+
+  /* ---- Branding. Only ever written by a build with branding enabled. ---- */
+  /**
+   * The nine brand colours as JSON, e.g. {"accent":"232 92 54",...}.
+   * One key rather than nine, so applying a preset is a single atomic write
+   * and a half-applied palette cannot exist.
+   */
+  themeColors: 'theme_colors',
+  /** Which preset is selected, or 'custom' once the client edits a colour. */
+  themePreset: 'theme_preset',
+  /**
+   * Filename of the background artwork inside <userData>/upload/theme/.
+   * A filename, never a URL — the app must render it with no network.
+   */
+  themeArt: 'theme_art',
+  /** Artwork strength on the dashboard, 0-100. */
+  themeArtOpacity: 'theme_art_opacity',
+  /** How much page colour veils the artwork on the working screens, 0-100. */
+  themeArtVeil: 'theme_art_veil',
 } as const;
 
 export const DEFAULT_SETTINGS: SettingsMap = {
@@ -639,6 +658,13 @@ export const DEFAULT_SETTINGS: SettingsMap = {
   [SETTING_KEYS.serviceChargeAmount]: '0',
   [SETTING_KEYS.shopLogo]: '',
   [SETTING_KEYS.receiptFooter]: '',
+  // Blank means "never branded" — the app falls back to DEFAULT_THEME, which
+  // is the stock navy. A simple build never writes these.
+  [SETTING_KEYS.themeColors]: '',
+  [SETTING_KEYS.themePreset]: 'default',
+  [SETTING_KEYS.themeArt]: '',
+  [SETTING_KEYS.themeArtOpacity]: '30',
+  [SETTING_KEYS.themeArtVeil]: '90',
 };
 
 /** Labels live here so the whole app names an order type the same way. */

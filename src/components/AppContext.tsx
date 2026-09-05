@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api, hasBridge } from '@/lib/api';
+import { ThemeStyle } from './ThemeStyle';
 import { setCurrency } from '@/lib/format';
 import {
   SETTING_KEYS,
@@ -246,6 +247,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={value}>
+      {/* Mounted above everything, so the client's brand reaches every screen
+          — including the activation gate, which renders before the app does. */}
+      <ThemeStyle settings={settings} />
       {children}
       <div className="toast-wrap">
         {toasts.map((t) => (
