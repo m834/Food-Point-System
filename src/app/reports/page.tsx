@@ -10,6 +10,7 @@ import { dateTime, hourLabel, money, qty, todayIso, daysAgoIso } from '@/lib/for
 import {
   ORDER_TYPE_LABELS,
   SETTING_KEYS,
+  WAITER_PAY_TYPE_LABELS,
   type BestSeller,
   type RangeTotals,
   type SalesByHour,
@@ -132,6 +133,11 @@ export default function ReportsPage() {
               value={money(totals.extras_total)}
               tone="c"
             />
+            {/* Read live from the expenses ledger — zero on a shop that has
+                never used either the expenses or waiter-wages toggle. */}
+            {totals.expenses_total > 0 ? (
+              <Stat label={strings.expenses.total} value={money(totals.expenses_total)} tone="b" />
+            ) : null}
             <Stat label={strings.reports.profit} value={money(totals.profit_total)} profit />
             <Stat label={strings.reports.orders} value={String(totals.order_count)} />
             <Stat
@@ -194,6 +200,51 @@ export default function ReportsPage() {
                         <td className="right num">{money(row.sales)}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ) : null}
+
+          {/* --- waiter wages: empty on a shop that has never used the
+                feature, or that recorded none in this range. A weekly or
+                monthly wage counts only on the day it was actually paid —
+                these are a straight sum of those distinct posted lines, so
+                nothing here is spread across the period. --- */}
+          {totals.waiter_wages_total > 0 ? (
+            <Card pad={false}>
+              <div className="card-head">
+                <h2>{strings.wages.title}</h2>
+              </div>
+              <div className="table-scroll">
+                <table className="data">
+                  <tbody>
+                    {totals.waiter_wages_daily > 0 ? (
+                      <tr>
+                        <td>{WAITER_PAY_TYPE_LABELS.daily}</td>
+                        <td className="right num">{money(totals.waiter_wages_daily)}</td>
+                      </tr>
+                    ) : null}
+                    {totals.waiter_wages_weekly > 0 ? (
+                      <tr>
+                        <td>{WAITER_PAY_TYPE_LABELS.weekly}</td>
+                        <td className="right num">{money(totals.waiter_wages_weekly)}</td>
+                      </tr>
+                    ) : null}
+                    {totals.waiter_wages_monthly > 0 ? (
+                      <tr>
+                        <td>{WAITER_PAY_TYPE_LABELS.monthly}</td>
+                        <td className="right num">{money(totals.waiter_wages_monthly)}</td>
+                      </tr>
+                    ) : null}
+                    <tr>
+                      <td>
+                        <strong>{strings.wages.total}</strong>
+                      </td>
+                      <td className="right num">
+                        <strong>{money(totals.waiter_wages_total)}</strong>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

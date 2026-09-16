@@ -708,6 +708,29 @@ export interface RangeTotals {
   extras_total: number;
   order_count: number;
   days: Array<{ date: string; sales: number; profit: number; orders: number }>;
+  /**
+   * Every expense recorded in the period — manual entries and waiter wages
+   * both, read live from the same ledger the Expenses screen and day-close
+   * report use. Zero on a shop that has never used either feature.
+   *
+   * Scoped by the same trading-day rule as everything else on this report
+   * (see businessDate()): an expense filed against a session is dated by
+   * when that session OPENED, not the calendar date it happened to be typed
+   * in, so a night that crosses midnight stays one entry here exactly as it
+   * does in `days` above.
+   */
+  expenses_total: number;
+  /** Of `expenses_total`, how much was waiter wages specifically. */
+  waiter_wages_total: number;
+  /**
+   * The wages total split by pay type — a weekly or monthly wage counts only
+   * on the day it was actually paid, never divided across the period, so
+   * these three simply sum the distinct expense lines `saveWaiterWages()`
+   * already posts (see repositories/expenses.ts).
+   */
+  waiter_wages_daily: number;
+  waiter_wages_weekly: number;
+  waiter_wages_monthly: number;
 }
 
 export interface SalesByType {

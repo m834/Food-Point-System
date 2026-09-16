@@ -1,5 +1,6 @@
 import { getDb } from '../connection';
 import { money, nowIso, todayIso } from '../money';
+import { businessDate } from '../businessDate';
 import { currentSessionId } from './daySessions';
 import { listWaiters } from './waiters';
 import {
@@ -56,6 +57,60 @@ export function totalForSession(sessionId: number): number {
     .prepare('SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE session_id = ?')
     .get(sessionId) as { total: number };
   return money(row.total);
+}
+
+export interface ExpenseTotalsInRange {
+  expenses_total: number;
+  waiter_wages_total: number;
+  waiter_wages_daily: number;
+  waiter_wages_weekly: number;
+  waiter_wages_monthly: number;
+}
+
+/**
+ * Expense and wage totals for a date range — read live from the ledger, the
+ * same rows the Expenses screen and day-close report already show, never
+ * recalculated from a waiter's rate.
+ *
+ * Scoped by the same trading-day rule as every other figure on the Reports
+ * screen (see businessDate()): an expense filed against a session is dated
+ * by when that session OPENED, not the calendar date it happened to be
+ * recorded, so a night that crosses midnight is not split across two days
+ * here while the rest of the report treats it as one.
+ *
+ * The pay-type breakdown is read off the description `saveWaiterWages()`
+ * already writes — "Waiter wages (daily) — …", "… (weekly) — …", "…
+ * (monthly) — …" — rather than a separate column, since each is already a
+ * distinct posted line for the one day it was actually paid. Summing those
+ * lines is exactly "never spread a weekly or monthly wage across the days
+ * in between": a wage posted on one day inside the range counts once, on
+ * that day; a payday outside the range contributes nothing.
+ */
+export function expenseTotalsInRange(from: string, to: string): ExpenseTotalsInRange {
+  const scope = businessDate('', 'expense_date');
+  const row = getDb()
+    .prepare(
+      `SELECT
+         COALESCE(SUM(amount), 0) AS expenses_total,
+         COALESCE(SUM(CASE WHEN source = 'wages' THEN amount ELSE 0 END), 0) AS waiter_wages_total,
+         COALESCE(SUM(CASE WHEN source = 'wages' AND description LIKE 'Waiter wages (daily)%'
+                       THEN amount ELSE 0 END), 0) AS waiter_wages_daily,
+         COALESCE(SUM(CASE WHEN source = 'wages' AND description LIKE 'Waiter wages (weekly)%'
+                       THEN amount ELSE 0 END), 0) AS waiter_wages_weekly,
+         COALESCE(SUM(CASE WHEN source = 'wages' AND description LIKE 'Waiter wages (monthly)%'
+                       THEN amount ELSE 0 END), 0) AS waiter_wages_monthly
+         FROM expenses
+        WHERE ${scope} BETWEEN ? AND ?`,
+    )
+    .get(from, to) as ExpenseTotalsInRange;
+
+  return {
+    expenses_total: money(row.expenses_total),
+    waiter_wages_total: money(row.waiter_wages_total),
+    waiter_wages_daily: money(row.waiter_wages_daily),
+    waiter_wages_weekly: money(row.waiter_wages_weekly),
+    waiter_wages_monthly: money(row.waiter_wages_monthly),
+  };
 }
 
 export interface ExpenseInput {

@@ -1,6 +1,7 @@
 import { getDb } from '../connection';
 import { money, todayIso } from '../money';
 import { businessDate } from '../businessDate';
+import { expenseTotalsInRange } from './expenses';
 import type {
   BestSeller,
   CancellationByStaff,
@@ -181,6 +182,11 @@ export function range(from: string, to: string): RangeTotals {
     )
     .all(from, to) as RangeTotals['days'];
 
+  // Read live from the expenses ledger — the same rows the Expenses screen
+  // and day-close report show, never recalculated from a waiter's rate.
+  // Zero on a shop that has never used either feature.
+  const expenses = expenseTotalsInRange(from, to);
+
   return {
     from,
     to,
@@ -193,6 +199,11 @@ export function range(from: string, to: string): RangeTotals {
     extras_total: money(totals.extras_total),
     order_count: totals.order_count,
     days,
+    expenses_total: expenses.expenses_total,
+    waiter_wages_total: expenses.waiter_wages_total,
+    waiter_wages_daily: expenses.waiter_wages_daily,
+    waiter_wages_weekly: expenses.waiter_wages_weekly,
+    waiter_wages_monthly: expenses.waiter_wages_monthly,
   };
 }
 
