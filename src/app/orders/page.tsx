@@ -19,7 +19,7 @@ import { ORDER_TYPE_LABELS, type Order, type UnpaidOrder } from '../../../shared
  * screen at all.
  */
 export default function OrdersPage() {
-  const { toast, isAdmin } = useApp();
+  const { toast, isAdmin, partialPaymentsEnabled } = useApp();
 
   const [from, setFrom] = useState(todayIso());
   const [to, setTo] = useState(todayIso());
@@ -28,6 +28,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [printingId, setPrintingId] = useState<number | null>(null);
   const [viewing, setViewing] = useState<Order | null>(null);
+  const [collecting, setCollecting] = useState<Order | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,8 +82,8 @@ export default function OrdersPage() {
   const owed = useMemo(
     () =>
       orders
-        .filter((order) => order.status === 'open')
-        .reduce((sum, order) => sum + ((order as UnpaidOrder).amount_due ?? 0), 0),
+        .filter((order) => order.status === 'open' || order.balance_due > 0)
+        .reduce((sum, order) => sum + ((order as UnpaidOrder).amount_due ?? order.balance_due), 0),
     [orders],
   );
 
@@ -240,8 +241,11 @@ export default function OrdersPage() {
                     {orders.map((order) => {
                       const voided = order.status === 'void';
                       const unpaid = order.status === 'open';
+                      // Distinct from `unpaid`: this one WAS charged, just not
+                      // in full. Only ever true with partial payments on.
+                      const partial = order.status === 'settled' && order.balance_due > 0;
                       const lines = order.items.filter((item) => item.kitchen_status !== 'void');
-                      const due = (order as UnpaidOrder).amount_due ?? 0;
+                      const due = (order as UnpaidOrder).amount_due ?? order.balance_due;
 
                       return (
                         <tr key={order.id}>
@@ -265,6 +269,11 @@ export default function OrdersPage() {
                               <span className="num">{since(order.opened_at)}</span>
                             ) : voided ? (
                               <Badge kind="danger">{strings.orders.voided}</Badge>
+                            ) : partial ? (
+                              <Badge kind="warning">
+                                {strings.orders.partial} ·{' '}
+                                {order.payment_method === 'card' ? strings.order.card : strings.order.cash}
+                              </Badge>
                             ) : (
                               <Badge kind="success">
                                 {order.payment_method === 'card'
@@ -276,12 +285,12 @@ export default function OrdersPage() {
                           <td
                             className="right num"
                             style={
-                              unpaid
+                              unpaid || partial
                                 ? { color: 'var(--warning-text)', fontWeight: 650 }
                                 : undefined
                             }
                           >
-                            {voided ? '—' : money(unpaid ? due : order.total)}
+                            {voided ? '—' : money(status === 'unpaid' ? due : order.total)}
                           </td>
                           {isAdmin && status !== 'unpaid' ? (
                             <td className="right num" style={{ color: 'var(--success)' }}>
@@ -293,6 +302,13 @@ export default function OrdersPage() {
                               <button className="btn sm" onClick={() => setViewing(order)}>
                                 {strings.orders.view}
                               </button>
+                              {/* Only ever offered when partial payments are on
+                                  and this order still owes something. */}
+                              {partialPaymentsEnabled && partial ? (
+                                <button className="btn sm primary" onClick={() => setCollecting(order)}>
+                                  {strings.orders.recordPayment}
+                                </button>
+                              ) : null}
                               {/* A voided order was never paid — there is no
                                   bill to reprint, so do not offer one. An
                                   unpaid one prints too, but as a slip marked
@@ -333,7 +349,122 @@ export default function OrdersPage() {
           printing={printingId === viewing.id}
         />
       ) : null}
+
+      {collecting ? (
+        <RecordPaymentModal
+          order={collecting}
+          onClose={() => setCollecting(null)}
+          onRecorded={async (message) => {
+            setCollecting(null);
+            await load();
+            toast(message, 'ok');
+          }}
+        />
+      ) : null}
     </AppShell>
+  );
+}
+
+/**
+ * Collect the rest of what a partially-paid order owes.
+ *
+ * The order is already settled — this only ever reduces `balance_due`. Only
+ * reachable when "Enable partial payments" is on; see recordBalancePayment()
+ * in the main process, which is the actual gate.
+ */
+function RecordPaymentModal({
+  order,
+  onClose,
+  onRecorded,
+}: {
+  order: Order;
+  onClose: () => void;
+  onRecorded: (message: string) => void | Promise<void>;
+}) {
+  const [amountText, setAmountText] = useState(String(order.balance_due));
+  const [method, setMethod] = useState<'cash' | 'card'>('cash');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const amount = Math.min(Math.max(Number(amountText) || 0, 0), order.balance_due);
+  const remaining = Math.max(order.balance_due - amount, 0);
+
+  const submit = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api.orders.settleBalance(order.id, { amount, payment_method: method });
+      await onRecorded(
+        result.print.warning ??
+          (result.order.balance_due > 0
+            ? `Collected ${money(amount)}. Balance ${money(result.order.balance_due)} still owed.`
+            : `Collected ${money(amount)}. Paid in full.`),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not record that payment.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={`${strings.orders.recordPaymentTitle} · ${order.order_no}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose} disabled={busy}>
+            {strings.common.cancel}
+          </button>
+          <button className="btn primary" onClick={submit} disabled={busy || !(amount > 0)}>
+            {strings.orders.recordPayment} · {money(amount)}
+          </button>
+        </>
+      }
+    >
+      <div className="row-between">
+        <span className="muted">{strings.order.balanceDue}</span>
+        <span className="num" style={{ color: 'var(--warning-text)', fontWeight: 650 }}>
+          {money(order.balance_due)}
+        </span>
+      </div>
+
+      <Field label={strings.order.amountReceived} hint={strings.orders.recordPaymentHint}>
+        <input
+          className="input num"
+          type="number"
+          min={0}
+          max={order.balance_due}
+          step="0.01"
+          value={amountText}
+          onChange={(event) => setAmountText(event.target.value)}
+          autoFocus
+        />
+      </Field>
+
+      <Field label={strings.order.paymentMethod}>
+        <div className="row" style={{ gap: 8 }}>
+          {(['cash', 'card'] as const).map((option) => (
+            <button
+              key={option}
+              className={`cat-tab${method === option ? ' active' : ''}`}
+              style={{ flex: 1 }}
+              onClick={() => setMethod(option)}
+            >
+              {option === 'cash' ? strings.order.cash : strings.order.card}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      {remaining > 0 ? (
+        <div className="row-between">
+          <span className="muted">Still owed after this</span>
+          <span className="num">{money(remaining)}</span>
+        </div>
+      ) : null}
+
+      {error ? <Notice>{error}</Notice> : null}
+    </Modal>
   );
 }
 
@@ -403,6 +534,14 @@ function OrderDetail({
         </Notice>
       ) : null}
 
+      {/* Settled, but not in full — only reachable with partial payments on. */}
+      {order.status === 'settled' && order.balance_due > 0 ? (
+        <Notice kind="warn">
+          {strings.orders.partial} — {strings.order.advancePaid}: {money(order.amount_paid)},{' '}
+          {strings.order.balanceDue}: {money(order.balance_due)}
+        </Notice>
+      ) : null}
+
       <div className="row" style={{ gap: 18, flexWrap: 'wrap' }}>
         <span className="small">
           <span className="muted">{strings.orders.type}: </span>
@@ -446,7 +585,10 @@ function OrderDetail({
                   </div>
                 ) : null}
               </td>
-              <td className="right num">{qty(item.qty)}</td>
+              <td className="right num">
+                {qty(item.qty)}
+                {item.unit_label ? ` ${item.unit_label}` : ''}
+              </td>
               <td className="right num">{money(item.line_total)}</td>
             </tr>
           ))}

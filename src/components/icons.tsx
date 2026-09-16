@@ -220,6 +220,29 @@ export function IconCustomers({ size = 18 }: Props) {
   );
 }
 
+/** Waiters — a person carrying a tray. Distinct from Customers and Staff. */
+export function IconExpense({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <rect x="3" y="6" width="18" height="13" rx="2" />
+      <path d="M3 10h18" />
+      <circle cx="12" cy="14.5" r="2.2" />
+      <path d="M7 3.5 3 6M17 3.5l4 2.5" />
+    </svg>
+  );
+}
+
+export function IconWaiter({ size = 18 }: Props) {
+  return (
+    <svg {...base(size)}>
+      <circle cx="12" cy="4.6" r="2.2" />
+      <path d="M12 8.4v6M9 21l1.4-6.6M15 21l-1.4-6.6" />
+      <path d="M4.5 13.5h15" />
+      <path d="M12 13.5V11" />
+    </svg>
+  );
+}
+
 /**
  * Open / close day — a sun on the horizon rather than a clock or a calendar.
  * The trading day this marks is a shift, not a date, and a calendar glyph

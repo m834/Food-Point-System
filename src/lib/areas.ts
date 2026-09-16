@@ -30,6 +30,8 @@ export const ADMIN_ROUTES = [
   '/reports/', // sales, best sellers, hours
   '/cancellations/', // who cancelled what, and for how much
   '/customers/', // names, numbers and home addresses — the owner's to hold
+  '/waiters/', // who is on the floor — deciding that is the owner's call
+  '/expenses/', // cash going out, and waiter wages — the owner's money either way
   '/settings/', // printers, staff, PIN, logo, backup, licence
 ] as const;
 

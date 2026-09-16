@@ -8,6 +8,7 @@ import type {
   DayReport,
   DaySession,
   Deal,
+  Expense,
   ExtraCharge,
   DiningTable,
   LicenseStatus,
@@ -23,10 +24,13 @@ import type {
   SalesByHour,
   SalesByType,
   SettingsMap,
+  SalesByWaiter,
   StaffMember,
   StaffSession,
   UnpaidOrder,
   VoidRecord,
+  Waiter,
+  WaiterWageEntry,
 } from '../../shared/types';
 
 /**
@@ -184,6 +188,7 @@ export const api = {
       customer_phone?: string | null;
       delivery_address?: string | null;
       delivery_charge?: number;
+      waiter_id?: number | null;
     }) => call<Order>('orders', 'open', input),
     /** Correct the address or fee on an open delivery order. */
     /** Add, change or remove an extra on an open order. */
@@ -212,8 +217,13 @@ export const api = {
       call<Order>('orders', 'setItemQty', orderItemId, qty),
     fire: (orderId: number) =>
       call<{ order: Order; fired: OrderItem[]; print: PrintOutcome }>('orders', 'fire', orderId),
-    settle: (orderId: number, input: { discount?: number; payment_method: string }) =>
-      call<{ order: Order; print: PrintOutcome }>('orders', 'settle', orderId, input),
+    settle: (
+      orderId: number,
+      input: { discount?: number; payment_method: string; amount_paid?: number },
+    ) => call<{ order: Order; print: PrintOutcome }>('orders', 'settle', orderId, input),
+    /** Collect the rest of what a partially-paid order owes. */
+    settleBalance: (orderId: number, input: { amount: number; payment_method: string }) =>
+      call<{ order: Order; print: PrintOutcome }>('orders', 'settleBalance', orderId, input),
     reprintBill: (orderId: number) => call<PrintOutcome>('orders', 'reprintBill', orderId),
     /** Cancel a line off an open order: reason code + optional note. */
     voidItem: (orderItemId: number, reason: CancelReasonCode, note?: string | null) =>
@@ -238,6 +248,28 @@ export const api = {
     current: () => call<StaffSession | null>('staff', 'current'),
   },
 
+  waiters: {
+    /** Open to the counter — feeds the takeaway order-screen dropdown. */
+    list: (activeOnly?: boolean) => call<Waiter[]>('waiters', 'list', activeOnly),
+    save: (waiter: Record<string, unknown>) => call<Waiter>('waiters', 'save', waiter),
+    remove: (id: number) => call<null>('waiters', 'remove', id),
+  },
+
+  /** Admin-only. What the counter is currently owed against is never reached. */
+  expenses: {
+    list: () => call<Expense[]>('expenses', 'list'),
+    save: (expense: { id?: number; description: string; amount: number }) =>
+      call<Expense>('expenses', 'save', expense),
+    remove: (id: number) => call<null>('expenses', 'remove', id),
+  },
+
+  /** Admin-only. The day-close wages review that posts into expenses. */
+  wages: {
+    draft: () => call<WaiterWageEntry[]>('wages', 'draft'),
+    save: (entries: Array<{ waiter_id: number; amount: number }>) =>
+      call<{ wages: WaiterWageEntry[]; expenses: Expense[] }>('wages', 'save', entries),
+  },
+
   reports: {
     dashboard: (date?: string) => call<DashboardSummary>('reports', 'dashboard', date),
     range: (from: string, to: string) => call<RangeTotals>('reports', 'range', from, to),
@@ -245,6 +277,8 @@ export const api = {
     bestSellers: (from: string, to: string, limit?: number) =>
       call<BestSeller[]>('reports', 'bestSellers', from, to, limit),
     byHour: (from: string, to: string) => call<SalesByHour[]>('reports', 'byHour', from, to),
+    byWaiter: (from: string, to: string) =>
+      call<SalesByWaiter[]>('reports', 'byWaiter', from, to),
     tradingHours: () => call<SalesByHour[]>('reports', 'tradingHours'),
     voids: (from: string, to: string) => call<VoidRecord[]>('reports', 'voids', from, to),
     cancellations: (from: string, to: string) =>

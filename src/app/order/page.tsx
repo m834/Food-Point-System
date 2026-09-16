@@ -25,6 +25,7 @@ import {
   type Customer,
   type ExtraCharge,
   type SettingsMap,
+  type Waiter,
 } from '../../../shared/types';
 
 /**
@@ -211,8 +212,9 @@ function OrderWorkspace() {
     try {
       const hydrated = await api.menu.getItem(item.id);
       // Sizes MUST be chosen — the backend refuses a line without one — and
-      // modifiers are offered when the item has them.
-      if (hydrated.variants?.length || hydrated.modifier_groups?.length) {
+      // modifiers are offered when the item has them. A weight-based item
+      // always needs the weight typed in, so it opens the same modal too.
+      if (hydrated.variants?.length || hydrated.modifier_groups?.length || hydrated.sold_by_weight) {
         setModifierItem(hydrated);
         return;
       }
@@ -560,6 +562,7 @@ function OrderWorkspace() {
               </div>
               <div className="order-header-where">
                 {order.table_name ?? ORDER_TYPE_LABELS[order.type]}
+                {order.waiter_name ? ` · ${order.waiter_name}` : ''}
               </div>
             </div>
 
@@ -630,7 +633,13 @@ function OrderWorkspace() {
                         <div className="order-line-meta">{strings.order.fired}</div>
                       ) : null}
 
-                      {entry.line.kitchen_status === 'new' ? (
+                      {entry.line.unit_label ? (
+                        // A weight is void-and-re-add to change, not stepped —
+                        // "+1" makes little sense against a typed 15 kg.
+                        <div className="order-line-meta">
+                          {fmtQty(entry.line.qty)} {entry.line.unit_label}
+                        </div>
+                      ) : entry.line.kitchen_status === 'new' ? (
                         <div className="row" style={{ marginTop: 6 }}>
                           <span className="qty-stepper">
                             <button
@@ -813,12 +822,16 @@ function StartOrderModal({
   onClose: () => void;
   onStarted: (order: Order) => void | Promise<void>;
 }) {
+  const { waitersEnabled } = useApp();
   const [type, setType] = useState<OrderType>(tablesEnabled ? 'dine_in' : 'takeaway');
   const [tables, setTables] = useState<DiningTable[]>([]);
   const [tableId, setTableId] = useState<number | null>(initialTableId);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  // Takeaway only, and only fetched when the shop has waiters switched on.
+  const [waiters, setWaiters] = useState<Waiter[]>([]);
+  const [waiterId, setWaiterId] = useState<number | null>(null);
   // Pre-filled from Settings, but the counter can change it for this order —
   // a far-out address costs more to reach than a nearby one.
   const [deliveryCharge, setDeliveryCharge] = useState(
@@ -876,6 +889,16 @@ function StartOrderModal({
       .catch(() => undefined);
   }, [tablesEnabled]);
 
+  // Fetched only for a takeaway order on a shop that has waiters switched on
+  // — a dine-in or delivery order never needs this list.
+  useEffect(() => {
+    if (type !== 'takeaway' || !waitersEnabled) return;
+    api.waiters
+      .list(true)
+      .then(setWaiters)
+      .catch(() => undefined);
+  }, [type, waitersEnabled]);
+
   const start = async () => {
     setBusy(true);
     setError('');
@@ -887,6 +910,7 @@ function StartOrderModal({
         customer_phone: phone || null,
         delivery_address: type === 'delivery' ? address.trim() : null,
         delivery_charge: type === 'delivery' ? Number(deliveryCharge) || 0 : undefined,
+        waiter_id: type === 'takeaway' && waitersEnabled ? waiterId : null,
       });
       await onStarted(created);
     } catch (err) {
@@ -914,12 +938,17 @@ function StartOrderModal({
               busy ||
               (type === 'dine_in' && !tableId) ||
               // Never let a delivery slip print with a blank address.
-              (type === 'delivery' && !address.trim())
+              (type === 'delivery' && !address.trim()) ||
+              // Same rule, for the waiter a takeaway order must name once the
+              // feature is switched on.
+              (type === 'takeaway' && waitersEnabled && !waiterId)
             }
             title={
               type === 'delivery' && !address.trim()
                 ? strings.order.deliveryNeedsAddress
-                : undefined
+                : type === 'takeaway' && waitersEnabled && !waiterId
+                  ? strings.order.waiterNeeded
+                  : undefined
             }
           >
             {strings.order.startOrder}
@@ -934,7 +963,10 @@ function StartOrderModal({
             <button
               key={option}
               className={`cat-tab${type === option ? ' active' : ''}`}
-              onClick={() => setType(option)}
+              onClick={() => {
+                setType(option);
+                if (option !== 'takeaway') setWaiterId(null);
+              }}
               style={{ flex: 1 }}
             >
               {ORDER_TYPE_LABELS[option]}
@@ -964,6 +996,31 @@ function StartOrderModal({
         )
       ) : (
         <>
+          {/* Takeaway only, and only when the shop has switched this on. A
+              waiter must be chosen before the order can start — enforced
+              both here (the button above is disabled) and in the backend. */}
+          {type === 'takeaway' && waitersEnabled ? (
+            <Field label={strings.order.waiter}>
+              {waiters.length ? (
+                <select
+                  className="input"
+                  value={waiterId ?? ''}
+                  onChange={(event) => setWaiterId(event.target.value ? Number(event.target.value) : null)}
+                  autoFocus
+                >
+                  <option value="">{strings.order.chooseWaiter}</option>
+                  {waiters.map((waiter) => (
+                    <option key={waiter.id} value={waiter.id}>
+                      {waiter.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Notice kind="warn">{strings.order.noActiveWaiters}</Notice>
+              )}
+            </Field>
+          ) : null}
+
           {/* Delivery needs somewhere to go, and what it costs to get there.
               Dine-in and takeaway are untouched by any of this. */}
           {type === 'delivery' ? (
@@ -1054,8 +1111,12 @@ function ModifierModal({
 }) {
   const groups: ModifierGroup[] = item.modifier_groups ?? [];
   const variants = item.variants ?? [];
+  const isWeight = Boolean(item.sold_by_weight);
   const [chosen, setChosen] = useState<Record<number, number[]>>({});
   const [quantity, setQuantity] = useState(1);
+  // A weight is typed, not stepped — free text so "1.5" can be entered
+  // digit by digit without the field fighting the cursor.
+  const [weightText, setWeightText] = useState('');
   const [notes, setNotes] = useState('');
   /**
    * Pre-select the first available size rather than leaving it blank.
@@ -1092,6 +1153,7 @@ function ModifierModal({
   // A variant price REPLACES the item price; it is not added to it.
   const chosenVariant = variants.find((v) => v.id === variantId) ?? null;
   const unitPrice = chosenVariant ? chosenVariant.sale_price : item.sale_price;
+  const effectiveQty = isWeight ? Number(weightText) || 0 : quantity;
 
   return (
     <Modal
@@ -1104,14 +1166,30 @@ function ModifierModal({
           </button>
           <button
             className="btn primary"
-            onClick={() => onAdd(quantity, notes || null, selectedIds, variantId)}
-            disabled={variants.length > 0 && !variantId}
+            onClick={() => onAdd(effectiveQty, notes || null, selectedIds, variantId)}
+            disabled={(variants.length > 0 && !variantId) || !(effectiveQty > 0)}
           >
-            {strings.order.addToOrder} · {money((unitPrice + delta) * quantity)}
+            {strings.order.addToOrder} · {money((unitPrice + delta) * effectiveQty)}
           </button>
         </>
       }
     >
+      {isWeight ? (
+        <Field label={strings.order.weight} hint={strings.order.weightHint(item.unit_label || 'kg')}>
+          <input
+            className="input num"
+            type="number"
+            min={0}
+            step="0.01"
+            inputMode="decimal"
+            value={weightText}
+            onChange={(event) => setWeightText(event.target.value)}
+            placeholder={`0 ${item.unit_label || 'kg'}`}
+            autoFocus
+          />
+        </Field>
+      ) : null}
+
       {variants.length ? (
         <Field label={strings.order.chooseSize} hint={strings.order.chooseSizeHint}>
           <div className="reason-grid">
@@ -1160,13 +1238,15 @@ function ModifierModal({
         />
       </Field>
 
-      <div className="row">
-        <span className="qty-stepper">
-          <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</button>
-          <span>{quantity}</span>
-          <button onClick={() => setQuantity((q) => q + 1)}>+</button>
-        </span>
-      </div>
+      {isWeight ? null : (
+        <div className="row">
+          <span className="qty-stepper">
+            <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</button>
+            <span>{quantity}</span>
+            <button onClick={() => setQuantity((q) => q + 1)}>+</button>
+          </span>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -1192,6 +1272,9 @@ function ChargeModal({
   const { settings } = useApp();
   const [discount, setDiscount] = useState('0');
   const [method, setMethod] = useState<'cash' | 'card'>('cash');
+  const partialEnabled = settings[SETTING_KEYS.enablePartialPayments] === '1';
+  const [paymentMode, setPaymentMode] = useState<'full' | 'partial'>('full');
+  const [amountText, setAmountText] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -1229,6 +1312,15 @@ function ChargeModal({
     round2(order.subtotal - discountValue + serviceCharge + deliveryCharge + extrasTotal),
   );
 
+  // Clamped the same way settleOrder() clamps it: never negative, never more
+  // than the total — so the button's own figure cannot promise a balance the
+  // backend will not agree to.
+  const amountPaid =
+    partialEnabled && paymentMode === 'partial'
+      ? Math.min(Math.max(Number(amountText) || 0, 0), previewTotal)
+      : previewTotal;
+  const balanceDue = round2(Math.max(previewTotal - amountPaid, 0));
+
   const settle = async () => {
     setBusy(true);
     setError('');
@@ -1236,9 +1328,12 @@ function ChargeModal({
       const result = await api.orders.settle(order.id, {
         discount: discountValue,
         payment_method: method,
+        amount_paid: partialEnabled && paymentMode === 'partial' ? amountPaid : undefined,
       });
       await onSettled(
-        result.print.warning ?? `Paid — ${money(result.order.total)}. Bill printed.`,
+        result.order.balance_due > 0
+          ? `Advance taken — ${money(result.order.amount_paid)}. Balance ${money(result.order.balance_due)} still owed.`
+          : (result.print.warning ?? `Paid — ${money(result.order.total)}. Bill printed.`),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not take the payment.');
@@ -1255,8 +1350,12 @@ function ChargeModal({
           <button className="btn" onClick={onClose} disabled={busy}>
             {strings.common.cancel}
           </button>
-          <button className="btn primary" onClick={settle} disabled={busy}>
-            {strings.order.charge} {money(previewTotal)}
+          <button
+            className="btn primary"
+            onClick={settle}
+            disabled={busy || (paymentMode === 'partial' && !(amountPaid > 0))}
+          >
+            {strings.order.charge} {money(amountPaid)}
           </button>
         </>
       }
@@ -1292,6 +1391,39 @@ function ChargeModal({
         </div>
       </Field>
 
+      {/* Invisible unless "Enable partial payments" is on in Settings — the
+          charge step otherwise takes the full amount exactly as it always has. */}
+      {partialEnabled ? (
+        <Field label={strings.order.takePayment}>
+          <div className="row" style={{ gap: 8 }}>
+            {(['full', 'partial'] as const).map((option) => (
+              <button
+                key={option}
+                className={`cat-tab${paymentMode === option ? ' active' : ''}`}
+                style={{ flex: 1 }}
+                onClick={() => setPaymentMode(option)}
+              >
+                {option === 'full' ? strings.order.fullAmount : strings.order.partialAmount}
+              </button>
+            ))}
+          </div>
+          {paymentMode === 'partial' ? (
+            <input
+              className="input num"
+              style={{ marginTop: 8 }}
+              type="number"
+              min={0}
+              max={previewTotal}
+              step="0.01"
+              value={amountText}
+              onChange={(event) => setAmountText(event.target.value)}
+              placeholder={strings.order.amountReceived}
+              autoFocus
+            />
+          ) : null}
+        </Field>
+      ) : null}
+
       {discountValue > 0 ? (
         <div className="row-between">
           <span className="muted">{strings.order.discount}</span>
@@ -1323,10 +1455,27 @@ function ChargeModal({
         </div>
       ) : null}
 
-      <div className="row-between" style={{ fontSize: 20, fontWeight: 700 }}>
-        <span>{strings.order.total}</span>
-        <span className="num">{money(previewTotal)}</span>
-      </div>
+      {partialEnabled && paymentMode === 'partial' ? (
+        <>
+          <div className="row-between" style={{ fontSize: 20, fontWeight: 700 }}>
+            <span>{strings.order.grandTotal}</span>
+            <span className="num">{money(previewTotal)}</span>
+          </div>
+          <div className="row-between">
+            <span className="muted">{strings.order.advancePaid}</span>
+            <span className="num">{money(amountPaid)}</span>
+          </div>
+          <div className="row-between" style={{ color: 'var(--warning-text)', fontWeight: 650 }}>
+            <span>{strings.order.balanceDue}</span>
+            <span className="num">{money(balanceDue)}</span>
+          </div>
+        </>
+      ) : (
+        <div className="row-between" style={{ fontSize: 20, fontWeight: 700 }}>
+          <span>{strings.order.total}</span>
+          <span className="num">{money(previewTotal)}</span>
+        </div>
+      )}
 
       {error ? <Notice>{error}</Notice> : null}
     </Modal>

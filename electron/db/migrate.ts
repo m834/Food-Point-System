@@ -235,6 +235,15 @@ CREATE TABLE IF NOT EXISTS staff (
   created_at TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS waiters (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT    NOT NULL,
+  -- Short code for a badge or a call sign. Optional.
+  code       TEXT,
+  is_active  INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT    NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL DEFAULT ''
@@ -255,6 +264,65 @@ CREATE TABLE IF NOT EXISTS backup_log (
   created_at TEXT    NOT NULL,
   size_bytes INTEGER NOT NULL DEFAULT 0
 );
+
+-- ---- Optional feature: partial payments (spec Feature 2) -----------------
+-- The ledger of money actually collected on an order, one row per collection.
+-- Exists so a partial settle followed by a later balance payment leaves an
+-- honest trail, and so the day report can tell which session real cash moved
+-- in — an order's own session_id is fixed at open time, but a balance paid
+-- days later belongs to whichever session is open THEN, not the one the order
+-- opened under. Written only while "Enable partial payments" is on.
+CREATE TABLE IF NOT EXISTS order_payments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id   INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  amount     REAL    NOT NULL DEFAULT 0,
+  method     TEXT    NOT NULL CHECK (method IN ('cash', 'card')),
+  kind       TEXT    NOT NULL DEFAULT 'advance' CHECK (kind IN ('advance', 'balance')),
+  session_id INTEGER REFERENCES day_sessions(id) ON DELETE SET NULL,
+  created_at TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_payments_order ON order_payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_payments_session ON order_payments(session_id, method);
+
+-- ---- Optional feature: daily expenses (spec Feature 3) -------------------
+-- Attached to whichever day session was open when it was recorded, falling
+-- back to the calendar date when none was — exactly the same rule an order
+-- follows. Admin-only; counter staff never reach the screen that writes this.
+CREATE TABLE IF NOT EXISTS expenses (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  description  TEXT    NOT NULL,
+  amount       REAL    NOT NULL DEFAULT 0,
+  session_id   INTEGER REFERENCES day_sessions(id) ON DELETE SET NULL,
+  expense_date TEXT    NOT NULL,
+  -- 'wages' is the one line the waiter-wages step writes, upserted per
+  -- session rather than duplicated on every save — see repositories/expenses.ts.
+  source       TEXT    NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'wages')),
+  created_at   TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_expenses_session ON expenses(session_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
+
+-- ---- Optional feature: waiter daily wages (spec Feature 4) ---------------
+-- One row per waiter per day session, holding whatever the owner actually
+-- saved — not the waiter's default rate, which lives on waiters.daily_wage
+-- and only ever PRE-FILLS this. Re-saving the same session replaces its rows
+-- outright (see saveWaiterWages), so this table always holds the latest
+-- review for that day, never a stack of edits.
+CREATE TABLE IF NOT EXISTS waiter_wages (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  waiter_id   INTEGER REFERENCES waiters(id) ON DELETE SET NULL,
+  -- Snapshot, exactly like orders.waiter_name: deleting a waiter later must
+  -- not blank out a wage already paid and recorded.
+  waiter_name TEXT    NOT NULL,
+  amount      REAL    NOT NULL DEFAULT 0,
+  session_id  INTEGER REFERENCES day_sessions(id) ON DELETE SET NULL,
+  wage_date   TEXT    NOT NULL,
+  created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_waiter_wages_session ON waiter_wages(session_id);
 `;
 
 /**
@@ -368,6 +436,16 @@ export function migrate(): void {
   addColumn('orders', 'session_id', 'INTEGER REFERENCES day_sessions(id) ON DELETE SET NULL');
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_session ON orders(session_id, status)');
 
+  /* ---- Waiters (optional, takeaway only) --------------------------------
+   * `waiter_id` is a plain reference with no ON DELETE clause spelled out
+   * beyond SET NULL — a waiter can be deleted outright at any time, unlike
+   * staff, because `waiter_name` is snapshotted onto the row exactly like
+   * `customer_name`. History never depends on the waiters table surviving.
+   */
+  addColumn('orders', 'waiter_id', 'INTEGER REFERENCES waiters(id) ON DELETE SET NULL');
+  addColumn('orders', 'waiter_name', 'TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_waiter ON orders(waiter_id)');
+
   /* ---- Service charge mode: don't change a live shop's bills -------------
    * The new default is 'fixed', which is right for a new install. But a shop
    * already running this app may have a percentage configured, and seeding
@@ -391,6 +469,62 @@ export function migrate(): void {
       db.prepare("INSERT INTO settings (key, value) VALUES ('service_charge_mode', 'percent')").run();
     }
   }
+
+  /* ---- Weight-based items (Feature 1) ------------------------------------
+   * `sale_price` is reused as the PER-UNIT price rather than adding a second
+   * price column — an item is either sold as a fixed unit or by weight, never
+   * both, so one price field is enough either way. `qty` on the order line
+   * (already REAL) becomes the weight instead of a count; nothing about how
+   * line_total = qty * price is computed has to change.
+   */
+  addColumn('menu_items', 'sold_by_weight', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('menu_items', 'unit_label', 'TEXT');
+  // Snapshot of the item's unit, exactly like variant_name — see the schema
+  // note above order_payments for why snapshots matter here too.
+  addColumn('order_items', 'unit_label', 'TEXT');
+
+  /* ---- Partial payments (Feature 2) --------------------------------------
+   * Both default to 0, which is exactly right for every order ever settled
+   * before this existed: `amount_paid` was always the full amount and
+   * `balance_due` was always zero, so leaving them at their default rather
+   * than backfilling is already the correct historical value.
+   */
+  addColumn('orders', 'amount_paid', 'REAL NOT NULL DEFAULT 0');
+  addColumn('orders', 'balance_due', 'REAL NOT NULL DEFAULT 0');
+
+  /* ---- Waiter wages (Feature 4) -------------------------------------------
+   * Set once when a waiter is added, editable in admin, and only ever
+   * consulted when "Enable waiter wages" is on — see repositories/expenses.ts.
+   *
+   * `daily_wage` was this feature's original column, added and shipped only
+   * within this same pre-release branch (never to a live database) before pay
+   * types existed. It is carried over into `wage_rate` below rather than
+   * dropped — dropping a column is exactly the kind of rebuild this file
+   * otherwise never does, and keeping the old column costs nothing.
+   */
+  const waiterCols = db.prepare('PRAGMA table_info(waiters)').all() as Array<{ name: string }>;
+  const hadWageRate = waiterCols.some((c) => c.name === 'wage_rate');
+  const hadDailyWage = waiterCols.some((c) => c.name === 'daily_wage');
+
+  addColumn('waiters', 'daily_wage', 'REAL NOT NULL DEFAULT 0');
+  // 'daily' | 'weekly' | 'monthly' — validated as a fixed set at the IPC
+  // layer (asEnum), the same way every other fixed-list column in this
+  // schema is, rather than a SQL CHECK.
+  addColumn('waiters', 'pay_type', "TEXT NOT NULL DEFAULT 'daily'");
+  // 0-6 (Sunday=0) for weekly, 1-31 for monthly, unused for daily.
+  addColumn('waiters', 'payday', 'INTEGER');
+  addColumn('waiters', 'wage_rate', 'REAL NOT NULL DEFAULT 0');
+
+  // Runs exactly once — guarded on wage_rate not having existed yet — so it
+  // can never overwrite a wage_rate an owner has since edited.
+  if (!hadWageRate && hadDailyWage) {
+    db.exec('UPDATE waiters SET wage_rate = daily_wage');
+  }
+
+  // Which cadence a saved wage was paid under — cosmetic (older rows saved
+  // before this existed are simply blank), but lets the day report and the
+  // review screen both say WHY a waiter was paid that day.
+  addColumn('waiter_wages', 'pay_type', 'TEXT');
 
   // Seed any setting the build knows about but this database has not seen yet,
   // so a new key added in a later version arrives with a sane default rather

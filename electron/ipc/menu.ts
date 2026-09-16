@@ -73,6 +73,12 @@ export function registerMenuHandlers(): void {
           : raw.image_file
             ? asString(raw.image_file, 'Image', { required: false, max: 200 })
             : null,
+      // Only meaningful when "Enable weight-based items" is on; saveItem()
+      // clears the unit whenever the toggle itself is off on this item.
+      sold_by_weight: asBool(raw.sold_by_weight),
+      unit_label: raw.unit_label
+        ? asString(raw.unit_label, 'Unit', { required: false, max: 20 })
+        : null,
       variants: raw.variants
         ? asArray(raw.variants, 'Sizes', 20).map((entry) => {
             const v = (entry ?? {}) as Record<string, unknown>;

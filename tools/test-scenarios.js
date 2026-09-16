@@ -1032,9 +1032,11 @@ app.whenReady().then(async () => {
     ok(/Customer: Bilal/.test(bill), 'customer name');
     ok(/Phone: 0333-4445556/.test(bill), 'customer phone');
     ok(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(bill), 'datetime');
-    ok(/2 x Zinger Burger/.test(bill), 'qty and item name');
-    ok(/\+ Large\s+Rs50\.00/.test(bill), 'modifier with price');
-    ok(/\+ Extra Cheese\s+Rs60\.00/.test(bill), 'second modifier');
+    ok(/Item\s+Price\s+Qty\s+Amount/.test(bill), 'the item table is headed');
+    // 350 + 50 (Large) + 60 (Extra Cheese) = 460 each, two of them = 920.
+    ok(/Zinger Burger\s+460\.00\s+2\s+920\.00/.test(bill), 'name, unit price, qty, amount');
+    ok(/\+ Large\s+\(incl\. Rs50\.00\)/.test(bill), 'modifier marked as inside the unit price');
+    ok(/\+ Extra Cheese\s+\(incl\. Rs60\.00\)/.test(bill), 'second modifier');
     ok(/\(extra crispy\)/.test(bill), 'line note');
     ok(/Subtotal\s+Rs/.test(bill), 'subtotal');
     ok(/Discount\s+-Rs50\.00/.test(bill), 'discount');
@@ -1050,6 +1052,55 @@ app.whenReady().then(async () => {
     eq(settled.total, 950, 'total = 1000 - 50');
     ok(bill.split('\n').every((l) => l.length <= 42), 'every line fits a 42-col roll');
     settingsRepo.saveSettings({ service_charge_percent: '0' });
+  });
+
+  test('9.6', 'Item lines read: name, price for one, quantity, amount', () => {
+    // The shop's own example: three pink crust pizzas must print the price of
+    // ONE pizza, the count, and what the three come to — not a lump sum the
+    // customer has to take on trust.
+    const pizza = Number(
+      getDb()
+        .prepare(
+          `INSERT INTO menu_items (name, category_id, sale_price, cost_price, is_available, sort_order)
+           VALUES (?, ?, 450, 200, 1, 99)`,
+        )
+        .run('Pink Crust Pizza', cat['Fast Food']).lastInsertRowid,
+    );
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: pizza, qty: 3, modifier_ids: [] }]);
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const bill = receipt.buildCustomerBill(settled);
+
+    ok(/^Pink Crust Pizza\s+450\.00\s+3\s+1350\.00$/m.test(bill), 'one line, four columns');
+    ok(bill.split('\n').every((l) => l.length <= 42), 'every line fits a 42-col roll');
+
+    // The three figures must agree with each other, or the customer catches
+    // the bill out doing arithmetic the till cannot defend.
+    const [, price, qty, total] = bill
+      .split('\n')
+      .find((l) => l.startsWith('Pink Crust Pizza'))
+      .match(/^Pink Crust Pizza\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)$/);
+    eq(Number(price) * Number(qty), Number(total), 'price x qty = amount');
+  });
+
+  test('9.7', 'A name too long for its column keeps its figures in line', () => {
+    // Truncating the name would hide what was bought, so it takes the full
+    // width and the figures land underneath, still in their own columns.
+    const long = Number(
+      getDb()
+        .prepare(
+          `INSERT INTO menu_items (name, category_id, sale_price, cost_price, is_available, sort_order)
+           VALUES (?, ?, 900, 400, 1, 98)`,
+        )
+        .run('Pink Crust Stuffed Family Pizza', cat['Fast Food']).lastInsertRowid,
+    );
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: long, qty: 2, modifier_ids: [] }]);
+    const bill = receipt.buildCustomerBill(orders.settleOrder(o.id, { payment_method: 'cash' }));
+
+    ok(/Pink Crust Stuffed Family/.test(bill), 'the name is never cut short');
+    ok(/^\s+900\.00\s+2\s+1800\.00$/m.test(bill), 'figures on their own line, in column');
+    ok(bill.split('\n').every((l) => l.length <= 42), 'every line fits a 42-col roll');
   });
 
   /* ================= Section 10 — Reports ================= */
@@ -1736,9 +1787,9 @@ app.whenReady().then(async () => {
     orders.addDeal(o.id, comboId, 1);
     const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
     const bill = receipt.buildCustomerBill(settled);
-    ok(/1 x Burger Combo\s+Rs380\.00/.test(bill), 'one deal line at the combo price');
-    ok(!/Rs309\.30/.test(bill), 'the split share is never shown to the customer');
-    ok(!/Rs70\.70/.test(bill), 'nor the other share');
+    ok(/Burger Combo\s+380\.00\s+1\s+380\.00/.test(bill), 'one deal line at the combo price');
+    ok(!/309\.30/.test(bill), 'the split share is never shown to the customer');
+    ok(!/70\.70/.test(bill), 'nor the other share');
     ok(/- 1 Zinger Burger/.test(bill), 'contents listed underneath, without prices');
     ok(/- 1 Cold Drink/.test(bill), 'second content line');
     ok(bill.split('\n').every((l) => l.length <= 42), 'still fits a 42-col roll');
@@ -3698,6 +3749,102 @@ app.whenReady().then(async () => {
     // sanitizeColors of nothing is the stock palette, which is what the
     // renderer falls back to — a blank setting is normal, not an error.
     eq(theme.sanitizeColors(null).accent, theme.DEFAULT_COLORS.accent, 'and stock is what shows');
+  });
+
+  /* ================================================================== *
+     28 — Waiters (optional, takeaway only)
+     ================================================================== */
+  section('28 — Waiters');
+
+  const waitersRepo = require(path.join(dist, 'db', 'repositories', 'waiters'));
+
+  test('28.1', 'Off by default: a takeaway order needs no waiter', () => {
+    eq(settingsRepo.waitersEnabled(), false, 'off out of the box');
+    const o = orders.openOrder({ type: 'takeaway' });
+    eq(o.waiter_id, null, 'no waiter attached');
+    eq(o.waiter_name, null, 'no waiter attached');
+  });
+
+  test('28.2', 'Dine-in and delivery are unaffected even when waiters are on', () => {
+    settingsRepo.saveSettings({ enable_waiters: '1' });
+    const dine = orders.openOrder({ type: 'dine_in', table_id: T.T2 });
+    eq(dine.waiter_id, null, 'dine-in never carries a waiter');
+    const deliv = orders.openOrder({ type: 'delivery', delivery_address: 'House 1, Lahore' });
+    eq(deliv.waiter_id, null, 'delivery never carries a waiter');
+    orders.voidOrder(dine.id, { reason_code: 'other', note: 'cleanup', staff_id: null });
+    orders.voidOrder(deliv.id, { reason_code: 'other', note: 'cleanup', staff_id: null });
+  });
+
+  test('28.3', 'ON, a takeaway order cannot start without choosing a waiter', () => {
+    const msg = throws(() => orders.openOrder({ type: 'takeaway' }), 'no waiter chosen');
+    ok(/waiter/i.test(msg), 'message names what is missing');
+  });
+
+  let waiterAli;
+  test('28.4', 'A takeaway order can be started once a waiter is chosen', () => {
+    waiterAli = waitersRepo.saveWaiter({ name: 'Ali', code: 'W1', is_active: true });
+    const o = orders.openOrder({ type: 'takeaway', waiter_id: waiterAli.id });
+    eq(o.waiter_id, waiterAli.id, 'waiter attached');
+    eq(o.waiter_name, 'Ali', 'name snapshotted onto the row');
+    orders.voidOrder(o.id, { reason_code: 'other', note: 'cleanup', staff_id: null });
+  });
+
+  test('28.5', 'A deactivated waiter drops off the dropdown but not off history', () => {
+    const paid = orders.addItems(
+      orders.openOrder({ type: 'takeaway', waiter_id: waiterAli.id }).id,
+      [{ menu_item_id: item['Cold Drink'], qty: 1 }],
+    );
+    const settled = orders.settleOrder(paid.id, { payment_method: 'cash' });
+    eq(settled.waiter_name, 'Ali', 'snapshot carried through settlement');
+
+    waitersRepo.saveWaiter({ id: waiterAli.id, name: 'Ali', is_active: false });
+    ok(
+      !waitersRepo.listWaiters(true).some((w) => w.id === waiterAli.id),
+      'gone from the active-only list the order screen uses',
+    );
+    eq(orders.getOrder(settled.id).waiter_name, 'Ali', 'the past order still says who it was');
+  });
+
+  let aliOrderId;
+  test('28.6', 'Deleting a waiter outright never touches a past order', () => {
+    // Ali was deactivated in 28.5 — a deactivated waiter cannot be attached to
+    // a NEW order (the same "no longer available" rule as a removed one), so
+    // this checks the order that already carries her snapshot from 28.5.
+    aliOrderId = orders
+      .listOrders(todayIso(), todayIso(), 'settled')
+      .find((o) => o.waiter_name === 'Ali').id;
+
+    waitersRepo.removeWaiter(waiterAli.id);
+    eq(waitersRepo.getWaiter(waiterAli.id), null, 'the roster row is really gone');
+    const reread = orders.getOrder(aliOrderId);
+    eq(reread.waiter_name, 'Ali', 'the bill still names them');
+    ok(reread.total > 0, 'and the rest of the order is untouched');
+  });
+
+  test('28.7', "The bill and the kitchen ticket print the waiter's name", () => {
+    const w = waitersRepo.saveWaiter({ name: 'Bilal', is_active: true });
+    let o = orders.openOrder({ type: 'takeaway', waiter_id: w.id });
+    o = orders.addItems(o.id, [{ menu_item_id: item['Zinger Burger'], qty: 1, modifier_ids: [modRegular] }]);
+    const { fired } = orders.fireToKitchen(o.id);
+    const ticket = receipt.buildKitchenTicket(orders.getOrder(o.id), fired);
+    ok(/WAITER: BILAL/.test(ticket), 'kitchen ticket names the waiter');
+    const settled = orders.settleOrder(o.id, { payment_method: 'cash' });
+    const bill = receipt.buildCustomerBill(settled);
+    ok(/Waiter: Bilal/.test(bill), 'customer bill names the waiter');
+  });
+
+  test('28.8', 'Per-waiter sales are reported for the period', () => {
+    const rows = reports.salesByWaiter(todayIso(), todayIso());
+    const ali = rows.find((r) => r.waiter_name === 'Ali');
+    ok(ali && ali.order_count >= 1, "Ali's settled order is counted");
+    const bilal = rows.find((r) => r.waiter_name === 'Bilal');
+    ok(bilal && bilal.sales > 0, "Bilal's sale is counted");
+  });
+
+  test('28.9', 'Turning the flag back off restores the old behaviour exactly', () => {
+    settingsRepo.saveSettings({ enable_waiters: '0' });
+    const o = orders.openOrder({ type: 'takeaway' });
+    eq(o.waiter_id, null, 'no waiter required or attached once off again');
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

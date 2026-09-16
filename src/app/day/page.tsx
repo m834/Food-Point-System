@@ -7,7 +7,13 @@ import { Card, Empty, Field, Modal, Notice, Stat } from '@/components/ui';
 import { api } from '@/lib/api';
 import { strings } from '@/lib/strings';
 import { dateTime, money, qty as fmtQty, time } from '@/lib/format';
-import { ORDER_TYPE_LABELS, type DayReport, type DaySession, type Order } from '../../../shared/types';
+import {
+  ORDER_TYPE_LABELS,
+  WAITER_PAY_TYPE_LABELS,
+  type DayReport,
+  type DaySession,
+  type Order,
+} from '../../../shared/types';
 
 /**
  * Open Day / Close Day — the business day, not the calendar day.
@@ -488,8 +494,110 @@ function SummaryTab({ report }: { report: DayReport }) {
               </td>
             </tr>
           ) : null}
+          {/* Distinct from "unpaid" above — these WERE charged, just not in
+              full. Zero on a shop that has never turned partial payments on. */}
+          {report.partial_count ? (
+            <tr>
+              <td colSpan={2} style={{ color: 'var(--warning-text)' }}>
+                {strings.day.partiallyPaid}
+              </td>
+              <td className="right num" style={{ color: 'var(--warning-text)' }}>
+                {report.partial_count} · {money(report.partial_balance_total)}
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
+
+      {/* Empty on a shop that has never used either expenses toggle. */}
+      {report.expenses.length ? (
+        <>
+          <div className="stat-label" style={{ marginTop: 16, marginBottom: 6 }}>
+            {strings.expenses.title}
+          </div>
+          <table className="data">
+            <tbody>
+              {report.expenses.map((expense) => (
+                <tr key={expense.id}>
+                  <td colSpan={2}>{expense.description}</td>
+                  <td className="right num">{money(expense.amount)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={2}>
+                  <strong>{strings.expenses.total}</strong>
+                </td>
+                <td className="right num">
+                  <strong>{money(report.expenses_total)}</strong>
+                </td>
+              </tr>
+              {report.net_cash_position !== null ? (
+                <tr>
+                  <td colSpan={2}>
+                    <strong>{strings.expenses.netCashPosition}</strong>
+                  </td>
+                  <td className="right num">
+                    <strong>{money(report.net_cash_position)}</strong>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+
+      {/* The per-waiter detail behind the single "Waiter wages" expense line
+          above — empty on a shop that has never turned that toggle on. */}
+      {report.waiter_wages.length ? (
+        <>
+          <div className="stat-label" style={{ marginTop: 16, marginBottom: 6 }}>
+            {strings.wages.title}
+          </div>
+          <table className="data">
+            <tbody>
+              {report.waiter_wages.map((wage, index) => (
+                <tr key={`${wage.waiter_name}-${index}`}>
+                  <td colSpan={2}>
+                    {wage.waiter_name}
+                    {wage.pay_type ? (
+                      <span className="tiny muted"> · {WAITER_PAY_TYPE_LABELS[wage.pay_type]}</span>
+                    ) : null}
+                  </td>
+                  <td className="right num">{money(wage.amount)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={2}>
+                  <strong>{strings.wages.total}</strong>
+                </td>
+                <td className="right num">
+                  <strong>{money(report.waiter_wages_total)}</strong>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </>
+      ) : null}
+
+      {/* Empty on a shop that has never turned waiters on. */}
+      {report.by_waiter.length ? (
+        <>
+          <div className="stat-label" style={{ marginTop: 16, marginBottom: 6 }}>
+            {strings.reports.byWaiter}
+          </div>
+          <table className="data">
+            <tbody>
+              {report.by_waiter.map((row) => (
+                <tr key={row.waiter_id ?? row.waiter_name}>
+                  <td>{row.waiter_name}</td>
+                  <td className="right num">{row.order_count}</td>
+                  <td className="right num">{money(row.sales)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
 
       {report.top_items.length ? (
         <>

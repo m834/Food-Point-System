@@ -3,6 +3,7 @@ import { groupOrderLines, isDealGroup } from '../../shared/dealLines';
 import {
   SETTING_KEYS,
   ORDER_TYPE_LABELS,
+  WAITER_PAY_TYPE_LABELS,
   type DayReport,
   type Order,
   type OrderItem,
@@ -51,6 +52,40 @@ function row(left: string, right: string): string {
   return left + ' '.repeat(space) + right;
 }
 
+/**
+ * The item table's columns, in characters, summing to WIDTH with a single
+ * space between each: 18 + 1 + 8 + 1 + 3 + 1 + 10 = 42.
+ *
+ * The figures print bare — no "Rs." — because the symbol repeated four times
+ * a line costs the item name the room it needs, and the currency is already
+ * stated on every total below. A 42-column roll has no width to waste.
+ */
+const NAME_W = 18;
+const PRICE_W = 8;
+const QTY_W = 3;
+const TOTAL_W = 10;
+
+/**
+ * One item the way the shop asks for it read: what it was, what ONE costs,
+ * how many, and what that comes to. Three pink crust pizzas print as
+ * "Pink Crust Pizza  450.00  3  1350.00" — the customer can check the
+ * multiplication themselves, which is the whole point of the format.
+ *
+ * Returns lines rather than a line: a name too long for its column takes the
+ * full width and the figures land underneath, still in their columns.
+ * Truncating "Pink Crust Pizza (Family)" to fit would hide what was bought.
+ */
+function itemRows(name: string, price: string, qty: string, total: string): string[] {
+  const figures =
+    price.padStart(PRICE_W) + ' ' + qty.padStart(QTY_W) + ' ' + total.padStart(TOTAL_W);
+  const nameLines = wrap(name, NAME_W);
+
+  if (nameLines.length === 1 && nameLines[0].length <= NAME_W) {
+    return [nameLines[0].padEnd(NAME_W) + ' ' + figures];
+  }
+  return [...wrap(name, WIDTH), ' '.repeat(NAME_W) + ' ' + figures];
+}
+
 /** Wrap a long item name rather than truncating it — "Chicken Handi Fam..." helps nobody. */
 function wrap(text: string, width: number, indent = ''): string[] {
   const words = text.split(/\s+/);
@@ -70,6 +105,11 @@ function wrap(text: string, width: number, indent = ''): string[] {
 
 function money(value: number, symbol: string): string {
   return `${symbol}${value.toFixed(2)}`;
+}
+
+/** The same number without the symbol, for the item table's columns. */
+function amount(value: number): string {
+  return value.toFixed(2);
 }
 
 function header(order: Order): string[] {
@@ -134,8 +174,18 @@ export function buildCustomerBill(order: Order): string {
     out.push(centre('*** UNPAID — NOT A RECEIPT ***'));
   }
 
+  // Set only on a takeaway order, and only when the shop has waiters turned
+  // on — printed here, ahead of the customer's own details, so the person
+  // handing the bag over is named as plainly as who it is for.
+  if (order.waiter_name) out.push(`Waiter: ${order.waiter_name}`);
   if (order.customer_name) out.push(`Customer: ${order.customer_name}`);
   if (order.customer_phone) out.push(`Phone: ${order.customer_phone}`);
+
+  // The column heads. Without them the three figures on an item line are
+  // three unexplained numbers; with them the customer knows which one is the
+  // price of a single pizza and which one is what three of them come to.
+  out.push(line());
+  out.push(...itemRows('Item', 'Price', 'Qty', 'Amount'));
   out.push(line());
 
   /**
@@ -147,13 +197,13 @@ export function buildCustomerBill(order: Order): string {
    */
   for (const entry of groupOrderLines(order.items)) {
     if (isDealGroup(entry)) {
-      const qty = `${trimQty(entry.qty)} x `;
-      const amount = money(entry.total, symbol);
-      const nameWidth = WIDTH - amount.length - qty.length - 1;
-      const nameLines = wrap(entry.deal_name, nameWidth, ' '.repeat(qty.length));
+      // A deal's own quantity, its price for one, and what they come to —
+      // the same four columns as any other line.
+      const unitPrice = entry.qty ? entry.total / entry.qty : entry.total;
 
-      out.push(row(qty + nameLines[0], amount));
-      for (const extra of nameLines.slice(1)) out.push(extra);
+      out.push(
+        ...itemRows(entry.deal_name, amount(unitPrice), trimQty(entry.qty), amount(entry.total)),
+      );
 
       for (const part of entry.lines) {
         const label = `   - ${trimQty(part.qty)} `;
@@ -166,20 +216,43 @@ export function buildCustomerBill(order: Order): string {
     }
 
     const item = entry;
-    const qty = `${trimQty(item.qty)} x `;
-    const amount = money(item.line_total, symbol);
-    const nameWidth = WIDTH - amount.length - qty.length - 1;
+    /**
+     * What ONE of these costs, modifiers and all.
+     *
+     * Taken from the snapshotted `sale_price` plus the chosen deltas rather
+     * than by dividing the line total, so price x qty lands exactly on the
+     * amount printed beside it. A customer who multiplies the two figures
+     * must get the third; a rounded division would sometimes leave them a
+     * paisa short and the bill looking wrong.
+     */
+    const unitPrice =
+      item.sale_price + item.modifiers.reduce((sum, mod) => sum + mod.price_delta, 0);
     // The size is part of what was bought: "Chicken Tikka (Large)".
     const label = item.variant_name ? `${item.item_name} (${item.variant_name})` : item.item_name;
-    const nameLines = wrap(label, nameWidth, ' '.repeat(qty.length));
 
-    out.push(row(qty + nameLines[0], amount));
-    for (const extra of nameLines.slice(1)) out.push(extra);
+    if (item.unit_label) {
+      /**
+       * A weight-based line — printed as one plain sentence rather than
+       * squeezed into the fixed price/qty/amount columns, which are too
+       * narrow for "15 kg". This is the one format the spec asks for by
+       * example: "Rice — 15 kg × Rs 350 = Rs 5,250".
+       */
+      out.push(
+        ...wrap(
+          `${label} — ${trimQty(item.qty)} ${item.unit_label} x ${money(unitPrice, symbol)} = ${money(item.line_total, symbol)}`,
+          WIDTH,
+        ),
+      );
+    } else {
+      out.push(...itemRows(label, amount(unitPrice), trimQty(item.qty), amount(item.line_total)));
+    }
 
-    // Modifiers priced on the line above; showing the delta explains the total.
+    // Each modifier's delta is already inside the unit price above, so it is
+    // marked as included — printed as a bare amount it would read as another
+    // charge to add on, and the customer would total the bill higher than it is.
     for (const mod of item.modifiers) {
       const label = `   + ${mod.name}`;
-      out.push(mod.price_delta ? row(label, money(mod.price_delta, symbol)) : label);
+      out.push(mod.price_delta ? row(label, `(incl. ${money(mod.price_delta, symbol)})`) : label);
     }
     if (item.notes) out.push(`   (${item.notes})`);
   }
@@ -222,12 +295,37 @@ export function buildCustomerBill(order: Order): string {
     out.push(row('Delivery', money(order.delivery_charge, symbol)));
   }
   out.push(line('='));
-  out.push(row(unpaid ? 'AMOUNT DUE' : 'TOTAL', money(total, symbol)));
+
+  /**
+   * A settled order that still owes a balance — an advance was taken instead
+   * of the full amount. Printed as GRAND TOTAL / ADVANCE PAID / BALANCE DUE
+   * rather than a single TOTAL, so the slip states plainly what was paid now
+   * and what is still owed, exactly as the spec asks. Only reachable when
+   * "Enable partial payments" is on — settleOrder() never leaves a balance
+   * otherwise, so `order.balance_due` is always 0 with it off.
+   */
+  const isPartial = order.status === 'settled' && order.balance_due > 0;
+
+  if (isPartial) {
+    out.push(row('GRAND TOTAL', money(total, symbol)));
+    out.push(row('Advance paid', money(order.amount_paid, symbol)));
+    out.push(row('BALANCE DUE', money(order.balance_due, symbol)));
+  } else {
+    out.push(row(unpaid ? 'AMOUNT DUE' : 'TOTAL', money(total, symbol)));
+  }
   if (order.payment_method) {
     out.push(row('Paid by', order.payment_method === 'cash' ? 'Cash' : 'Card'));
   }
   out.push('');
-  out.push(centre(unpaid ? 'Please pay at the counter' : 'Thank you — please come again'));
+  out.push(
+    centre(
+      isPartial
+        ? 'Balance due on delivery / collection'
+        : unpaid
+          ? 'Please pay at the counter'
+          : 'Thank you — please come again',
+    ),
+  );
 
   // The shop's own closing line: return policy, wifi password, whatever they
   // want on every bill. Wrapped, because owners type more than fits.
@@ -275,6 +373,9 @@ export function buildKitchenTicket(order: Order, fired: OrderItem[]): string {
    * where the food is harder to read.
    */
   if (order.type === 'delivery') out.push('** DELIVERY **');
+  // So the runner reads whose order this is at a glance, under noise and
+  // steam — the same reason everything else on this ticket is oversized.
+  if (order.waiter_name) out.push(`WAITER: ${order.waiter_name.toUpperCase()}`);
   out.push(new Date().toTimeString().slice(0, 5));
   out.push(line());
 
@@ -293,11 +394,15 @@ export function buildKitchenTicket(order: Order, fired: OrderItem[]): string {
       }
     }
 
-    const qty = `${trimQty(item.qty)} x `;
+    // A weight line reads as "RICE — 15 KG" — the kitchen needs the weight,
+    // not a count, so it is not prefixed like an ordinary quantity.
+    const qty = item.unit_label ? '' : `${trimQty(item.qty)} x `;
     // The kitchen needs the size most of all — it decides the dough.
-    const kitchenLabel = item.variant_name
-      ? `${item.item_name} (${item.variant_name})`
-      : item.item_name;
+    const kitchenLabel = item.unit_label
+      ? `${item.item_name} — ${trimQty(item.qty)} ${item.unit_label}`
+      : item.variant_name
+        ? `${item.item_name} (${item.variant_name})`
+        : item.item_name;
     for (const [i, text] of wrap(kitchenLabel.toUpperCase(), WIDTH - qty.length, ' '.repeat(qty.length)).entries()) {
       out.push(i === 0 ? qty + text : text);
     }
@@ -347,6 +452,18 @@ export function buildDayReport(report: DayReport): string {
   }
   out.push(line());
 
+  // Empty on a shop that has never turned waiters on — nothing prints.
+  if (report.by_waiter.length) {
+    out.push(line());
+    out.push('By waiter');
+    for (const entry of report.by_waiter) {
+      out.push(
+        row(`  ${entry.waiter_name}`, `${entry.order_count}  ${money(entry.sales, symbol)}`),
+      );
+    }
+  }
+  out.push(line());
+
   out.push(row('TOTAL SALES', money(report.sales_total, symbol)));
   // Spelled out in full, because "profit" alone would be read as take-home.
   // Absent entirely on a counter's copy: margin is the owner's number, and a
@@ -381,6 +498,38 @@ export function buildDayReport(report: DayReport): string {
   if (report.unpaid_count) {
     out.push(row('UNPAID AT CLOSE', String(report.unpaid_count)));
     out.push(row('  value', money(report.unpaid_total, symbol)));
+  }
+
+  // Distinct from "unpaid" above: these orders WERE charged, just not in
+  // full. Zero on a shop that has never turned partial payments on.
+  if (report.partial_count) {
+    out.push(row('PARTIALLY PAID', String(report.partial_count)));
+    out.push(row('  balance owed', money(report.partial_balance_total, symbol)));
+  }
+
+  // Empty on a shop that has never turned expenses or waiter wages on.
+  if (report.expenses.length) {
+    out.push(line());
+    out.push('Expenses');
+    for (const expense of report.expenses) {
+      out.push(row(`  ${expense.description}`, money(expense.amount, symbol)));
+    }
+    out.push(row('TOTAL EXPENSES', money(report.expenses_total, symbol)));
+
+    if (report.waiter_wages.length) {
+      out.push('Waiter wages');
+      for (const wage of report.waiter_wages) {
+        const label = wage.pay_type ? `${wage.waiter_name} (${WAITER_PAY_TYPE_LABELS[wage.pay_type]})` : wage.waiter_name;
+        out.push(row(`  ${label}`, money(wage.amount, symbol)));
+      }
+    }
+
+    if (report.net_cash_position !== null) {
+      out.push(line());
+      // Deliberately not called profit — see DayReport.net_cash_position.
+      out.push('Net cash position (cash sales - expenses)');
+      out.push(row('', money(report.net_cash_position, symbol)));
+    }
   }
 
   if (report.top_items.length) {

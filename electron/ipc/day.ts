@@ -7,6 +7,9 @@ import {
   openDay,
   unpaidOnSession,
 } from '../db/repositories/daySessions';
+import { listExpensesForSession, totalForSession, waiterWagesForSession } from '../db/repositories/expenses';
+import { waiterWagesEnabled } from '../db/repositories/settings';
+import { money } from '../db/money';
 import { printDayReport } from '../services/printing';
 import { printDaySheet, saveDaySheetPdf } from '../services/daySheet';
 import { listOrdersForSession } from '../db/repositories/orders';
@@ -37,8 +40,49 @@ import type { DayReport } from '../../shared/types';
  * Exported so the test suite can assert the stripping directly rather than
  * trusting that a screen remembers to hide a column.
  */
+/**
+ * Overlay expenses and waiter wages onto the base report.
+ *
+ * Kept apart from `dayReport()` in daySessions.ts, which knows nothing about
+ * `expenses.ts` and never will — the two repositories would otherwise import
+ * each other, since `expenses.ts` already reads the current session from
+ * daySessions.ts. Composing them here, where both are already in scope for
+ * `day:close`/`day:report`, avoids that cycle entirely.
+ *
+ * Reads straight from the `expenses` ledger with no toggle check of its own:
+ * a shop that has never turned "Enable daily expenses" OR "Enable waiter
+ * wages" on has never written a row to it, so the list is empty and this is
+ * a no-op by construction — "invisible while off" falls out of nothing ever
+ * being written, not out of hiding data that exists. A shop using only the
+ * wages toggle still sees its wage line counted here, exactly as the spec
+ * asks: wages post into this same ledger, not a second bucket.
+ */
+function withExpenses(report: DayReport, sessionId: number): DayReport {
+  const expenses = listExpensesForSession(sessionId);
+  if (!expenses.length) return report;
+
+  const expensesTotal = totalForSession(sessionId);
+  const waiterWages = waiterWagesEnabled() ? waiterWagesForSession(sessionId) : [];
+  const waiterWagesTotal = money(waiterWages.reduce((sum, w) => sum + w.amount, 0));
+
+  return {
+    ...report,
+    expenses,
+    expenses_total: expensesTotal,
+    // Labelled a cash POSITION, never profit — see the field's own doc in
+    // shared/types.ts.
+    net_cash_position: money(report.cash_sales - expensesTotal),
+    waiter_wages: waiterWages.map((w) => ({
+      waiter_name: w.waiter_name,
+      amount: w.amount,
+      pay_type: w.pay_type,
+    })),
+    waiter_wages_total: waiterWagesTotal,
+  };
+}
+
 export function reportFor(sessionId: number): DayReport {
-  const report = dayReport(sessionId);
+  const report = withExpenses(dayReport(sessionId), sessionId);
   return isAdmin() ? report : { ...report, gross_profit: null };
 }
 

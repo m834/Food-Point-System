@@ -1,5 +1,6 @@
 import { getDb } from '../connection';
 import { money, nowIso } from '../money';
+import { partialPaymentsEnabled } from './settings';
 import type { DayReport, DaySession, OrderType } from '../../../shared/types';
 
 /**
@@ -133,6 +134,63 @@ export function dayReport(sessionId: number): DayReport {
     )
     .get(sessionId) as Record<string, number>;
 
+  /**
+   * Cash/card actually collected THIS session, for the drawer reconciliation
+   * below — kept apart from `sales_total` above, which stays revenue at the
+   * full settled amount regardless of what has actually been collected.
+   *
+   * Off by default, and this whole block only runs when partial payments are
+   * on, so a shop that has never used the feature keeps the exact query it
+   * always had (`totals.cash_sales` / `totals.card_sales`, i.e. `orders.total`
+   * by `payment_method`).
+   *
+   * On, an order that has a row in `order_payments` is counted from THAT
+   * ledger instead of from `orders.total` — its own row(s) already state
+   * exactly what moved, and in which session, whether that was the advance
+   * taken today or a balance collected on a later day than the order itself
+   * belongs to. An order with no such row (every order settled before this
+   * feature ever existed, or settled in full while the toggle was off) is
+   * counted from `orders.total` exactly as before — it was paid in full at
+   * settle time, so that figure already is what moved.
+   */
+  const partial = partialPaymentsEnabled();
+  let cashSales = money(totals.cash_sales);
+  let cardSales = money(totals.card_sales);
+  let partialCount = 0;
+  let partialBalanceTotal = 0;
+
+  if (partial) {
+    const untracked = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total ELSE 0 END), 0) AS cash,
+                COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total ELSE 0 END), 0) AS card
+           FROM orders o
+          WHERE ${settled}
+            AND NOT EXISTS (SELECT 1 FROM order_payments p WHERE p.order_id = o.id)`,
+      )
+      .get(sessionId) as { cash: number; card: number };
+
+    const collected = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN method = 'cash' THEN amount ELSE 0 END), 0) AS cash,
+                COALESCE(SUM(CASE WHEN method = 'card' THEN amount ELSE 0 END), 0) AS card
+           FROM order_payments WHERE session_id = ?`,
+      )
+      .get(sessionId) as { cash: number; card: number };
+
+    cashSales = money(untracked.cash + collected.cash);
+    cardSales = money(untracked.card + collected.card);
+
+    const bal = db
+      .prepare(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(balance_due), 0) AS total
+           FROM orders WHERE ${settled} AND balance_due > 0`,
+      )
+      .get(sessionId) as { count: number; total: number };
+    partialCount = bal.count;
+    partialBalanceTotal = money(bal.total);
+  }
+
   const byType = db
     .prepare(
       `SELECT type, COUNT(*) AS order_count, COALESCE(SUM(total), 0) AS sales
@@ -140,6 +198,24 @@ export function dayReport(sessionId: number): DayReport {
         GROUP BY type ORDER BY sales DESC`,
     )
     .all(sessionId) as Array<{ type: OrderType; order_count: number; sales: number }>;
+
+  // Only takeaway orders ever carry a waiter, so this needs no extra type
+  // filter — every other order type leaves waiter_name null. Empty on a shop
+  // that has never turned the feature on. Grouped by waiter_name, the
+  // snapshot, not waiter_id — see the matching note in reports.ts, since
+  // deleting a waiter nulls waiter_id (ON DELETE SET NULL) but never the name.
+  const byWaiter = db
+    .prepare(
+      `SELECT waiter_id, waiter_name, COUNT(*) AS order_count, COALESCE(SUM(total), 0) AS sales
+         FROM orders WHERE ${settled} AND waiter_name IS NOT NULL
+        GROUP BY waiter_name ORDER BY sales DESC`,
+    )
+    .all(sessionId) as Array<{
+    waiter_id: number | null;
+    waiter_name: string;
+    order_count: number;
+    sales: number;
+  }>;
 
   /**
    * Gross profit — sales MINUS ITEM COST, at the item level only.
@@ -183,12 +259,12 @@ export function dayReport(sessionId: number): DayReport {
     .all(sessionId) as Array<{ item_name: string; qty: number; revenue: number }>;
 
   const unpaid = unpaidOnSession(sessionId);
-  const cashSales = money(totals.cash_sales);
 
   return {
     session,
     order_count: totals.order_count,
     by_type: byType.map((row) => ({ ...row, sales: money(row.sales) })),
+    by_waiter: byWaiter.map((row) => ({ ...row, sales: money(row.sales) })),
     sales_total: money(totals.sales_total),
     gross_profit: money(margin.revenue - margin.cost),
     service_charges: money(totals.service_charges),
@@ -198,11 +274,22 @@ export function dayReport(sessionId: number): DayReport {
     cancelled_value: money(cancelled.value),
     top_items: topItems.map((row) => ({ ...row, revenue: money(row.revenue) })),
     cash_sales: cashSales,
-    card_sales: money(totals.card_sales),
+    card_sales: cardSales,
     // Only stated when a float was actually entered — "expected cash: 0" on a
     // day nobody counted a float for is a number that invites a false alarm.
     expected_cash: session.opening_float > 0 ? money(session.opening_float + cashSales) : null,
     unpaid_count: unpaid.count,
     unpaid_total: unpaid.total,
+    partial_count: partialCount,
+    partial_balance_total: partialBalanceTotal,
+    // Expenses and waiter wages are overlaid by reportFor() in electron/ipc/day.ts,
+    // which composes this repository with expenses.ts — kept apart so the two
+    // stay free of a circular import. These are the correct defaults for a
+    // session that has never recorded either.
+    expenses: [],
+    expenses_total: 0,
+    net_cash_position: null,
+    waiter_wages: [],
+    waiter_wages_total: 0,
   };
 }

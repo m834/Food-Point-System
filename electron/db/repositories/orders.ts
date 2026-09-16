@@ -12,7 +12,13 @@ import {
   recomputeExtrasTotal,
   setOrderExtra,
 } from './extras';
-import { serviceChargeFor } from './settings';
+import {
+  partialPaymentsEnabled,
+  serviceChargeFor,
+  waitersEnabled,
+  weightItemsEnabled,
+} from './settings';
+import { getWaiter } from './waiters';
 import type {
   CancelReasonCode,
   NewOrderLine,
@@ -47,9 +53,11 @@ const ORDER_SELECT = `
          o.opened_at, o.settled_at, o.customer_name, o.customer_phone,
          o.subtotal, o.discount, o.service_charge, o.delivery_charge,
          o.delivery_address, o.extras_total, o.session_id, o.total, o.profit,
+         o.amount_paid, o.balance_due,
          o.payment_method, o.void_reason, o.voided_at,
          o.void_reason_code, o.void_note, o.voided_by_staff_id,
-         o.voided_was_paid, s.name AS voided_by_staff_name
+         o.voided_was_paid, s.name AS voided_by_staff_name,
+         o.waiter_id, o.waiter_name
   FROM orders o
   LEFT JOIN tables t ON t.id = o.table_id
   LEFT JOIN staff s ON s.id = o.voided_by_staff_id
@@ -65,7 +73,7 @@ function hydrate(row: OrderRow): Order {
       `SELECT id, order_id, menu_item_id, item_name, qty, cost_price, sale_price,
               line_total, notes, kitchen_status, fired_at, void_reason, voided_at,
               void_reason_code, void_note, voided_by_staff_id,
-              deal_id, deal_group, deal_name, variant_name, variant_id
+              deal_id, deal_group, deal_name, variant_name, variant_id, unit_label
          FROM order_items WHERE order_id = ? ORDER BY id`,
     )
     .all(row.id) as Array<Omit<OrderItem, 'modifiers'>>;
@@ -167,6 +175,10 @@ export function listOrders(
  * showing a discount nobody has granted yet would understate the debt.
  */
 export function amountDueFor(order: Order): number {
+  // A settled order's money is already fixed — what it owes is exactly its
+  // stored balance, not a figure recomputed from live lines.
+  if (order.status === 'settled') return order.balance_due;
+
   const live = order.items.filter((item) => item.kitchen_status !== 'void');
   const subtotal = money(live.reduce((sum, item) => sum + item.line_total, 0));
   const serviceCharge = money(serviceChargeFor(subtotal, order.type));
@@ -201,8 +213,17 @@ export function listOrdersForSession(sessionId: number): Order[] {
  * to.
  */
 export function listUnpaidOrders(): UnpaidOrder[] {
+  // Off by default: the query text is untouched from before this feature
+  // existed, so a shop that has never turned it on sees byte-identical
+  // behaviour. On, a settled order still owing a balance joins the list too —
+  // "unpaid" reads as "the shop is still owed money on this", which a partial
+  // payment is.
+  const where = partialPaymentsEnabled()
+    ? "o.status = 'open' OR (o.status = 'settled' AND o.balance_due > 0)"
+    : "o.status = 'open'";
+
   const rows = getDb()
-    .prepare(`${ORDER_SELECT} WHERE o.status = 'open' ORDER BY o.opened_at ASC`)
+    .prepare(`${ORDER_SELECT} WHERE ${where} ORDER BY o.opened_at ASC`)
     .all() as OrderRow[];
 
   return rows.map((row) => {
@@ -268,6 +289,8 @@ export interface OpenOrderInput {
   delivery_address?: string | null;
   /** Defaults from settings, but the counter can change it per order. */
   delivery_charge?: number;
+  /** Takeaway only, and only consulted when "Enable waiters" is on. */
+  waiter_id?: number | null;
 }
 
 export function openOrder(input: OpenOrderInput): Order {
@@ -297,12 +320,33 @@ export function openOrder(input: OpenOrderInput): Order {
     // Non-delivery orders never carry either field, whatever the UI sent.
     const deliveryCharge = isDelivery ? money(Math.max(input.delivery_charge ?? 0, 0)) : 0;
 
+    /**
+     * Waiter — takeaway only, and only when the owner has switched the
+     * feature on. Enforced here as well as in the UI, the same rule as a
+     * delivery address: a toggle in Settings must not be the only thing
+     * standing between the counter and an order with no waiter on it.
+     *
+     * The name is snapshotted onto the row NOW, exactly like customer_name —
+     * so renaming or deleting this waiter tomorrow can never rewrite what
+     * today's bill or report says.
+     */
+    let waiterId: number | null = null;
+    let waiterName: string | null = null;
+    if (input.type === 'takeaway' && waitersEnabled()) {
+      if (!input.waiter_id) throw new Error('Choose a waiter before starting this order.');
+      const waiter = getWaiter(input.waiter_id);
+      if (!waiter || !waiter.is_active) throw new Error('That waiter is no longer available.');
+      waiterId = waiter.id;
+      waiterName = waiter.name;
+    }
+
     const info = db
       .prepare(
         `INSERT INTO orders (order_no, type, table_id, status, opened_at,
                              customer_name, customer_phone,
-                             delivery_address, delivery_charge, session_id)
-         VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+                             delivery_address, delivery_charge, session_id,
+                             waiter_id, waiter_name)
+         VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         nextOrderNo(),
@@ -316,6 +360,8 @@ export function openOrder(input: OpenOrderInput): Order {
         // Whichever business day is open. Null when none is — the counter must
         // still be able to serve, the order simply belongs to no day report.
         currentSessionId(),
+        waiterId,
+        waiterName,
       );
 
     return Number(info.lastInsertRowid);
@@ -361,12 +407,18 @@ export function addItems(orderId: number, lines: NewOrderLine[]): Order {
     const insertItem = db.prepare(
       `INSERT INTO order_items
          (order_id, menu_item_id, item_name, qty, cost_price, sale_price,
-          line_total, notes, kitchen_status, variant_name, variant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`,
+          line_total, notes, kitchen_status, variant_name, variant_id, unit_label)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`,
     );
     const insertMod = db.prepare(
       'INSERT INTO order_item_modifiers (order_item_id, name, price_delta) VALUES (?, ?, ?)',
     );
+
+    // Read once per call, not once per line — and honoured only while the
+    // toggle is on. A stray `sold_by_weight` flag left on an item from when
+    // the feature was briefly on must not resurrect weight pricing once it is
+    // off again — the whole point of the toggle is that OFF means invisible.
+    const weightEnabled = weightItemsEnabled();
 
     for (const line of lines) {
       const item = getItem(line.menu_item_id);
@@ -391,8 +443,19 @@ export function addItems(orderId: number, lines: NewOrderLine[]): Order {
       let unitCost = item.cost_price;
       let variantName: string | null = null;
       let variantId: number | null = null;
+      /**
+       * A weight-based item's `qty` is not a count, it is the weight — e.g.
+       * 15 for "15 kg" — and `sale_price` is read as the PER-UNIT price, so
+       * `line_total = qty * unitPrice` already does the right arithmetic with
+       * no other change. Only the printed unit differs, snapshotted here.
+       */
+      const isWeightItem = weightEnabled && Boolean(item.sold_by_weight);
+      let unitLabel: string | null = null;
 
-      if (item.variants.length) {
+      if (isWeightItem) {
+        if (line.variant_id) throw new Error(`${item.name} does not come in sizes.`);
+        unitLabel = item.unit_label || null;
+      } else if (item.variants.length) {
         if (!line.variant_id) {
           throw new Error(`Choose a size for ${item.name}.`);
         }
@@ -426,6 +489,7 @@ export function addItems(orderId: number, lines: NewOrderLine[]): Order {
         line.notes || null,
         variantName,
         variantId,
+        unitLabel,
       );
 
       const lineId = Number(info.lastInsertRowid);
@@ -680,6 +744,13 @@ export function fireToKitchen(orderId: number): { order: Order; fired: OrderItem
 export interface SettleInput {
   discount?: number;
   payment_method: PaymentMethod;
+  /**
+   * What the customer actually handed over right now. Undefined, or omitted
+   * entirely, means the full amount — exactly today's behaviour. Only ever
+   * honoured as less than the total while "Enable partial payments" is on;
+   * see settleOrder().
+   */
+  amount_paid?: number;
 }
 
 /**
@@ -752,10 +823,25 @@ export function settleOrder(orderId: number, input: SettleInput): Order {
     const total = money(subtotal - discount + serviceCharge + deliveryCharge + extras);
     const profit = money(total - cogs - extrasCogs);
 
+    /**
+     * Partial payments — off by default, and off means `amountPaid` is
+     * always `total`, exactly as before this existed.
+     *
+     * Revenue is still the FULL settled amount: `total` and `profit` above
+     * are computed exactly as they always were, whether or not the customer
+     * paid in full right now. Only `amount_paid` / `balance_due` — a
+     * receivable, not a sale — differ.
+     */
+    const partial = partialPaymentsEnabled();
+    const amountPaid = partial
+      ? money(Math.min(Math.max(input.amount_paid ?? total, 0), total))
+      : total;
+    const balanceDue = money(Math.max(total - amountPaid, 0));
+
     db.prepare(
       `UPDATE orders
           SET subtotal = ?, discount = ?, service_charge = ?, extras_total = ?,
-              total = ?, profit = ?,
+              total = ?, profit = ?, amount_paid = ?, balance_due = ?,
               payment_method = ?, status = 'settled', settled_at = ?
         WHERE id = ?`,
     ).run(
@@ -765,13 +851,80 @@ export function settleOrder(orderId: number, input: SettleInput): Order {
       extras,
       total,
       profit,
+      amountPaid,
+      balanceDue,
       input.payment_method,
       nowIso(),
       orderId,
     );
 
+    // The ledger of money actually collected, so a later balance payment and
+    // the day report both have an honest trail to read — written only while
+    // the feature is on, so a shop that has never used it never gains a row.
+    if (partial) {
+      db.prepare(
+        `INSERT INTO order_payments (order_id, amount, method, kind, session_id, created_at)
+         VALUES (?, ?, ?, 'advance', ?, ?)`,
+      ).run(orderId, amountPaid, input.payment_method, currentSessionId(), nowIso());
+    }
+
     // The table frees itself: occupancy is derived from open orders, and this
     // order is no longer open.
+    return orderId;
+  });
+
+  return getOrder(run())!;
+}
+
+/**
+ * Collect the rest of what a partially-paid order owes.
+ *
+ * The order is already `settled` — its items, total and profit were fixed at
+ * the first payment and do not move. This only ever reduces `balance_due`
+ * and appends to the payments ledger, exactly like the advance did.
+ */
+export interface BalancePaymentInput {
+  amount: number;
+  payment_method: PaymentMethod;
+}
+
+export function recordBalancePayment(orderId: number, input: BalancePaymentInput): Order {
+  const db = getDb();
+
+  const run = db.transaction(() => {
+    if (!partialPaymentsEnabled()) {
+      throw new Error('Partial payments are turned off.');
+    }
+
+    const order = getOrder(orderId);
+    if (!order) throw new Error('That order no longer exists.');
+    if (order.status !== 'settled') {
+      throw new Error('This order has not been charged yet.');
+    }
+    if (order.balance_due <= 0) {
+      throw new Error('Nothing is owed on this order.');
+    }
+
+    // Clamped, not rejected: a counter typing a figure a paisa over the
+    // balance should not be turned away, and the shop is never owed less
+    // than zero.
+    const amount = money(Math.min(Math.max(input.amount, 0), order.balance_due));
+    if (amount <= 0) throw new Error('Enter an amount to collect.');
+
+    const amountPaid = money(order.amount_paid + amount);
+    const balanceDue = money(Math.max(order.total - amountPaid, 0));
+
+    db.prepare('UPDATE orders SET amount_paid = ?, balance_due = ? WHERE id = ?').run(
+      amountPaid,
+      balanceDue,
+      orderId,
+    );
+
+    db.prepare(
+      `INSERT INTO order_payments (order_id, amount, method, kind, session_id, created_at)
+       VALUES (?, ?, ?, 'balance', ?, ?)`,
+    ).run(orderId, amount, input.payment_method, currentSessionId(), nowIso());
+
     return orderId;
   });
 

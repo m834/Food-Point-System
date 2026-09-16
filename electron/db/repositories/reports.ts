@@ -10,6 +10,7 @@ import type {
   RangeTotals,
   SalesByHour,
   SalesByType,
+  SalesByWaiter,
   VoidRecord,
 } from '../../../shared/types';
 import { CANCEL_REASON_LABELS, type CancelReasonCode } from '../../../shared/types';
@@ -210,6 +211,36 @@ export function salesByType(from: string, to: string): SalesByType[] {
         ORDER BY sales DESC`,
     )
     .all(from, to) as SalesByType[];
+}
+
+/**
+ * Per-waiter breakdown for a period: how many orders, and what they sold.
+ *
+ * Only takeaway orders ever carry a waiter, so this is naturally a subset of
+ * `salesByType('takeaway', ...)` — nothing here needs to filter by type
+ * explicitly, since `orders.waiter_id` is null on every dine-in and delivery
+ * row. Empty when the shop has never turned waiters on.
+ *
+ * Filtered and grouped by `waiter_name`, the snapshot, NOT `waiter_id`. The
+ * waiters table has `ON DELETE SET NULL`, so deleting a waiter nulls
+ * `waiter_id` on their past orders while `waiter_name` survives — grouping by
+ * id would make a deleted waiter's history silently vanish from this report,
+ * which is exactly the outcome the snapshot exists to prevent.
+ */
+export function salesByWaiter(from: string, to: string): SalesByWaiter[] {
+  return getDb()
+    .prepare(
+      `SELECT o.waiter_id, o.waiter_name,
+              COUNT(*)                AS order_count,
+              COALESCE(SUM(o.total), 0) AS sales
+         FROM orders o
+        WHERE o.status = 'settled' AND o.waiter_name IS NOT NULL
+          AND ${businessDate('o.', 'o.settled_at')} BETWEEN ? AND ?
+        GROUP BY o.waiter_name
+        ORDER BY sales DESC`,
+    )
+    .all(from, to)
+    .map((row) => ({ ...(row as SalesByWaiter), sales: money((row as SalesByWaiter).sales) }));
 }
 
 /** What to promote and what to drop. */

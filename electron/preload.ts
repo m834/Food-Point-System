@@ -107,6 +107,8 @@ const api = {
     fire: (orderId: number) => ipcRenderer.invoke('orders:fire', orderId),
     settle: (orderId: number, input: unknown) =>
       ipcRenderer.invoke('orders:settle', orderId, input),
+    settleBalance: (orderId: number, input: unknown) =>
+      ipcRenderer.invoke('orders:settleBalance', orderId, input),
     reprintBill: (orderId: number) => ipcRenderer.invoke('orders:reprintBill', orderId),
     voidItem: (orderItemId: number, reason: string, note?: string | null) =>
       ipcRenderer.invoke('orders:voidItem', orderItemId, reason, note),
@@ -125,6 +127,23 @@ const api = {
     current: () => ipcRenderer.invoke('staff:current'),
   },
 
+  waiters: {
+    list: (activeOnly?: boolean) => ipcRenderer.invoke('waiters:list', activeOnly),
+    save: (waiter: unknown) => ipcRenderer.invoke('waiters:save', waiter),
+    remove: (id: number) => ipcRenderer.invoke('waiters:remove', id),
+  },
+
+  expenses: {
+    list: () => ipcRenderer.invoke('expenses:list'),
+    save: (expense: unknown) => ipcRenderer.invoke('expenses:save', expense),
+    remove: (id: number) => ipcRenderer.invoke('expenses:remove', id),
+  },
+
+  wages: {
+    draft: () => ipcRenderer.invoke('wages:draft'),
+    save: (entries: unknown) => ipcRenderer.invoke('wages:save', entries),
+  },
+
   reports: {
     dashboard: (date?: string) => ipcRenderer.invoke('reports:dashboard', date),
     range: (from: string, to: string) => ipcRenderer.invoke('reports:range', { from, to }),
@@ -132,6 +151,7 @@ const api = {
     bestSellers: (from: string, to: string, limit?: number) =>
       ipcRenderer.invoke('reports:bestSellers', { from, to, limit }),
     byHour: (from: string, to: string) => ipcRenderer.invoke('reports:byHour', { from, to }),
+    byWaiter: (from: string, to: string) => ipcRenderer.invoke('reports:byWaiter', { from, to }),
     tradingHours: () => ipcRenderer.invoke('reports:tradingHours'),
     voids: (from: string, to: string) => ipcRenderer.invoke('reports:voids', { from, to }),
     cancellations: (from: string, to: string) =>

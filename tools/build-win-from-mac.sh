@@ -17,6 +17,23 @@
 # win32-x64, swap it in for the duration of the package step, and put the local
 # one back afterwards. The trap means the dev machine is restored even if
 # electron-builder fails halfway.
+#
+# WHY THIS BRANCH IS PINNED TO ELECTRON 22 / better-sqlite3 9.6.0
+#
+# This client's PC is stuck on Windows 8.1, and Electron dropped Windows
+# 7/8/8.1 support at v23 (its Chromium requires Windows 10+) — a newer build
+# fails on launch with "This app can't run on your PC" regardless of ia32 vs
+# x64. Electron 22.3.27 is the last release that still runs there.
+#
+# better-sqlite3 is pinned to 9.6.0 to match: it's the newest version that
+# still PUBLISHES a prebuild for Electron 22's ABI (110) on win32-ia32 — newer
+# better-sqlite3 releases stop shipping prebuilds that far back, which would
+# leave this script with nothing to download.
+#
+# Both are exact versions in package.json (no ^) on purpose — a routine
+# `npm update` must not silently re-break this client's install. This pin is
+# specific to THIS branch/client; do not carry it back to main, where clients
+# are on current Windows and should get the current Electron.
 
 set -euo pipefail
 
@@ -33,9 +50,10 @@ cd "$ROOT"
 #   npm run dist:win:branded -- x64       -> branded, x64
 #
 # BRANDED vs SIMPLE is the product decision, not a code branch. A branded build
-# gets the Appearance screen, where the client sets their own nine colours and
-# uploads their artwork; a simple build ships the stock navy look with no such
-# screen. One flag, read only in src/lib/branding.ts.
+# wears the client's own nine colours and artwork, read from their database; a
+# simple build ships the stock navy look and never reads them. Neither shows
+# the Appearance editor — that is a separate switch, and off unless a build
+# asks for it. Both flags are read only in src/lib/branding.ts.
 ARCH="ia32"
 BRANDED=0
 

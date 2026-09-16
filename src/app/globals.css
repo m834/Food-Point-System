@@ -2749,6 +2749,18 @@ table.data tbody tr:last-child td {
   gap: 8px;
 }
 
+/* The bill's item table: name on the left, then price-for-one, quantity and
+   line amount right-aligned, the same four columns buildCustomerBill prints. */
+.slip-preview-items {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0 8px;
+}
+
+.slip-preview-items span + span {
+  text-align: right;
+}
+
 .slip-preview-total {
   font-weight: 700;
 }

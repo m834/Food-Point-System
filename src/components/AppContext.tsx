@@ -38,6 +38,11 @@ interface AppState {
   license: LicenseStatus | null;
   settings: SettingsMap;
   tablesEnabled: boolean;
+  waitersEnabled: boolean;
+  weightItemsEnabled: boolean;
+  partialPaymentsEnabled: boolean;
+  dailyExpensesEnabled: boolean;
+  waiterWagesEnabled: boolean;
   /** Who is on the counter, per the MAIN process. Null when nobody is. */
   staff: StaffSession | null;
   /** 'dark' or 'light'. Applied to <html data-theme>. */
@@ -211,6 +216,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       license,
       settings,
       tablesEnabled: settings[SETTING_KEYS.enableTables] !== '0',
+      waitersEnabled: settings[SETTING_KEYS.enableWaiters] === '1',
+      weightItemsEnabled: settings[SETTING_KEYS.enableWeightItems] === '1',
+      partialPaymentsEnabled: settings[SETTING_KEYS.enablePartialPayments] === '1',
+      dailyExpensesEnabled: settings[SETTING_KEYS.enableDailyExpenses] === '1',
+      waiterWagesEnabled: settings[SETTING_KEYS.enableWaiterWages] === '1',
       staff,
       staffRequired,
       theme,

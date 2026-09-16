@@ -194,12 +194,15 @@ function ItemModal({
   onClose: () => void;
   onDone: () => void | Promise<void>;
 }) {
+  const { weightItemsEnabled } = useApp();
   const [name, setName] = useState(item?.name ?? '');
   const [categoryId, setCategoryId] = useState<string>(item?.category_id ? String(item.category_id) : '');
   const [price, setPrice] = useState(item ? String(item.sale_price) : '');
   const [cost, setCost] = useState(item ? String(item.cost_price) : '');
   const [available, setAvailable] = useState(item ? Boolean(item.is_available) : true);
   const [notes, setNotes] = useState(item?.notes ?? '');
+  const [soldByWeight, setSoldByWeight] = useState(Boolean(item?.sold_by_weight));
+  const [unitLabel, setUnitLabel] = useState(item?.unit_label ?? '');
   const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
   const [image, setImage] = useState<string | null>(item?.image_file ?? null);
   const [variants, setVariants] = useState<Array<{ name: string; sale_price: string; cost_price: string }>>(
@@ -244,6 +247,14 @@ function ItemModal({
         notes: notes || null,
         sort_order: item?.sort_order ?? 0,
         image_file: image,
+        // Not gated on `weightItemsEnabled` here: the checkbox is hidden while
+        // the toggle is off, so `soldByWeight` is simply whatever the item
+        // already had — saving an unrelated field on that item (its name, its
+        // photo) must not silently clear a weight configuration set while the
+        // toggle was on. Turning the toggle back off just stops the backend
+        // from honouring it, exactly as every other toggle in this app works.
+        sold_by_weight: soldByWeight,
+        unit_label: soldByWeight ? unitLabel.trim() || null : null,
         modifier_group_ids: selectedGroups,
         // Rows with a name are real sizes; a half-typed blank row is not.
         variants: variants
@@ -320,7 +331,7 @@ function ItemModal({
             ))}
           </select>
         </Field>
-        <Field label={strings.menu.price}>
+        <Field label={soldByWeight ? `${strings.menu.price} / ${unitLabel || strings.menu.unitLabelPlaceholder.replace('e.g. ', '')}` : strings.menu.price}>
           <input
             className="input num"
             type="number"
@@ -341,6 +352,31 @@ function ItemModal({
           />
         </Field>
       </div>
+
+      {/* Weight/bulk pricing — invisible unless "Enable weight-based items"
+          is on in Settings. Mutually exclusive with Sizes: an item is either
+          a fixed unit or sold by weight, never both. */}
+      {weightItemsEnabled ? (
+        <Field label={strings.menu.soldByWeight} hint={strings.menu.soldByWeightHint}>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={soldByWeight}
+              onChange={(event) => setSoldByWeight(event.target.checked)}
+            />
+            {strings.menu.soldByWeight}
+          </label>
+          {soldByWeight ? (
+            <input
+              className="input"
+              style={{ marginTop: 8, maxWidth: 160 }}
+              placeholder={strings.menu.unitLabelPlaceholder}
+              value={unitLabel}
+              onChange={(event) => setUnitLabel(event.target.value)}
+            />
+          ) : null}
+        </Field>
+      ) : null}
 
       {groups.length ? (
         <Field label={strings.menu.modifierGroups}>
@@ -369,7 +405,9 @@ function ItemModal({
       </Field>
 
       {/* Sizes. An item with none is a single-price item; add a row and it
-          starts asking the counter which size before it goes on the bill. */}
+          starts asking the counter which size before it goes on the bill.
+          Hidden for a weight-based item — the two are mutually exclusive. */}
+      {soldByWeight ? null : (
       <Field label={strings.menu.sizes} hint={strings.menu.sizesHint}>
         {variants.length ? (
           <div className="variant-rows">
@@ -441,6 +479,7 @@ function ItemModal({
           {strings.menu.addSize}
         </button>
       </Field>
+      )}
 
       <Field label={`${strings.order.lineNote} (${strings.order.optional})`}>
         <input className="input" value={notes} onChange={(event) => setNotes(event.target.value)} />

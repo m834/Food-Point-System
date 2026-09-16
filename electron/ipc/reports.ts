@@ -8,6 +8,7 @@ import {
   salesByHour,
   salesByHourForSession,
   salesByType,
+  salesByWaiter,
   voids,
 } from '../db/repositories/reports';
 import { currentSession } from '../db/repositories/daySessions';
@@ -66,6 +67,13 @@ export function registerReportHandlers(): void {
       asDate(raw.to, 'To date'),
       raw.limit === undefined ? 20 : asNumber(raw.limit, 'Limit', { min: 1, max: 200 }),
     );
+  });
+
+  /** Per-waiter breakdown — empty on a shop that has never turned this on. */
+  handle('reports:byWaiter', (_e, input) => {
+    requireAdmin();
+    const raw = (input ?? {}) as Record<string, unknown>;
+    return salesByWaiter(asDate(raw.from, 'From date'), asDate(raw.to, 'To date'));
   });
 
   handle('reports:byHour', (_e, input) => {

@@ -36,6 +36,15 @@ export interface MenuItem {
   notes: string | null;
   /** Filename inside <userData>/images/. Null when no photo is set. */
   image_file: string | null;
+  /**
+   * Sold by weight/bulk (e.g. rice by the kg) rather than as a fixed unit.
+   * `sale_price` is then read as the PER-UNIT price. Only settable, and only
+   * ever true, when "Enable weight-based items" is switched on in Settings —
+   * see SETTING_KEYS.enableWeightItems.
+   */
+  sold_by_weight: number;
+  /** Unit for a weight-based item, e.g. "kg". Null for an ordinary item. */
+  unit_label: string | null;
   /** Modifier groups attached to this item, hydrated for the order screen. */
   modifier_groups?: ModifierGroup[];
   /**
@@ -198,6 +207,15 @@ export interface Order {
   total: number;
   /** Locked in at settle time from snapshots. Null while the order is open. */
   profit: number | null;
+  /**
+   * Money actually collected so far. Zero while the order is open. Equals
+   * `total` on an ordinary settle; less than `total` only when "Enable
+   * partial payments" is on and the counter took an advance rather than the
+   * full amount — see SETTING_KEYS.enablePartialPayments.
+   */
+  amount_paid: number;
+  /** `total - amount_paid`, floored at zero. Zero once fully paid. */
+  balance_due: number;
   payment_method: PaymentMethod | null;
   void_reason: string | null;
   voided_at: string | null;
@@ -208,6 +226,18 @@ export interface Order {
   voided_by_staff_name: string | null;
   /** Whether the money had already been taken when this was cancelled. */
   voided_was_paid: number;
+  /**
+   * Which waiter this order belongs to. Only ever set on a takeaway order,
+   * and only when "Enable waiters" is on — dine-in and delivery never carry
+   * one. Null on every order taken before the feature existed or with it off.
+   */
+  waiter_id: number | null;
+  /**
+   * Snapshot of the waiter's name at the moment the order was opened, exactly
+   * like `customer_name` — so renaming or deleting a waiter later never
+   * changes what a past bill or report says.
+   */
+  waiter_name: string | null;
   items: OrderItem[];
   /** Packaging charged on this order. Empty on most orders. */
   extras: OrderExtra[];
@@ -245,6 +275,13 @@ export interface OrderItem {
   /** Snapshot of the chosen size, e.g. "Large". Null for single-price items. */
   variant_name: string | null;
   variant_id: number | null;
+  /**
+   * Snapshot of the item's unit, e.g. "kg", for a weight-based line — `qty` is
+   * then the weight, not a count. Null on every ordinary line, exactly like
+   * `variant_name`, so a unit changed on the menu tomorrow cannot rewrite
+   * today's bill.
+   */
+  unit_label: string | null;
 }
 
 /**
@@ -332,6 +369,8 @@ export interface DayReport {
   session: DaySession;
   order_count: number;
   by_type: Array<{ type: OrderType; order_count: number; sales: number }>;
+  /** Empty when waiters are off, or nobody took a waiter-tagged order that day. */
+  by_waiter: SalesByWaiter[];
   sales_total: number;
   /**
    * Sales minus what the FOOD cost — item level only.
@@ -359,6 +398,32 @@ export interface DayReport {
   /** Unpaid orders still attached to this session when it closed. */
   unpaid_count: number;
   unpaid_total: number;
+  /**
+   * Orders SETTLED this session that still owe a balance — distinct from
+   * `unpaid_*` above, which is orders never charged at all. Zero on a shop
+   * that has never turned "Enable partial payments" on. See Order.balance_due.
+   */
+  partial_count: number;
+  partial_balance_total: number;
+  /**
+   * Money recorded out this session — vegetables, gas, waiter wages. Empty and
+   * zero on a shop that has never turned "Enable daily expenses" on.
+   */
+  expenses: Array<{ id: number; description: string; amount: number; source: 'manual' | 'wages' }>;
+  expenses_total: number;
+  /**
+   * cash_sales - expenses_total. Labelled deliberately as a cash POSITION, not
+   * profit — it says nothing about food cost or margin, only what is left in
+   * the drawer. Null until at least one expense has ever been recorded, so a
+   * shop that has never used the feature sees no new line on its slip.
+   */
+  net_cash_position: number | null;
+  /**
+   * Per-waiter wages paid this session — empty on a shop that has never
+   * turned "Enable waiter wages" on, or that has no waiters at all.
+   */
+  waiter_wages: Array<{ waiter_name: string; amount: number; pay_type?: WaiterPayType }>;
+  waiter_wages_total: number;
 }
 
 /**
@@ -423,6 +488,116 @@ export interface StaffMember {
 export interface StaffSession {
   id: number;
   name: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Waiters — optional, and only for takeaway
+ * ------------------------------------------------------------------ */
+
+/**
+ * Who a takeaway order is being run for.
+ *
+ * Deliberately separate from `StaffMember`: staff is about who is allowed to
+ * cancel a sale, waiters is about which floor person a takeaway belongs to —
+ * a shop may run one roster, both, or neither. Managed entirely from the
+ * admin portal; the counter only ever sees the dropdown this feeds.
+ */
+/** How often a waiter is paid. Decides which day-close reviews they appear on. */
+export const WAITER_PAY_TYPES = ['daily', 'weekly', 'monthly'] as const;
+export type WaiterPayType = (typeof WAITER_PAY_TYPES)[number];
+
+export const WAITER_PAY_TYPE_LABELS: Record<WaiterPayType, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+};
+
+/** Sunday-first, matching JS `Date#getDay()` — index IS the stored `payday`. */
+export const WEEKDAY_LABELS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
+export interface Waiter {
+  id: number;
+  name: string;
+  /** A short code, e.g. for a badge or a walkie-talkie call sign. Optional. */
+  code: string | null;
+  /** Deactivated waiters drop off the order-screen dropdown but keep history. */
+  is_active: number;
+  created_at: string;
+  /**
+   * How often this waiter is paid. Set once when the waiter is added and
+   * editable in admin. Only consulted when "Enable waiter wages" is on — it
+   * decides which day-close wages reviews this waiter is offered on at all;
+   * see SETTING_KEYS.enableWaiterWages and WaiterWageEntry.
+   */
+  pay_type: WaiterPayType;
+  /**
+   * Which day this waiter is due, for 'weekly' (0-6, Sunday=0 — see
+   * WEEKDAY_LABELS) or 'monthly' (1-31, the day of the month; a payday past
+   * the end of a short month falls on that month's last day instead, so a
+   * salary is never silently skipped in February). Null for 'daily', which
+   * has no payday — a daily waiter is offered on every review.
+   */
+  payday: number | null;
+  /** The default amount for one pay period, at `pay_type`'s cadence. */
+  wage_rate: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Expenses & waiter wages — optional, admin-only cash-out tracking
+ * ------------------------------------------------------------------ */
+
+/**
+ * Money that left the till — vegetables, a gas cylinder, waiter wages.
+ *
+ * Attached to whichever day session was open when it was recorded, falling
+ * back to the calendar date when none was — exactly like an order taken with
+ * no day open. Only ever created from the admin portal; counter staff never
+ * reach it. See SETTING_KEYS.enableDailyExpenses.
+ */
+export interface Expense {
+  id: number;
+  description: string;
+  amount: number;
+  /** The day session this was recorded against, or null if none was open. */
+  session_id: number | null;
+  /** Always set, so an expense taken with no day open still files somewhere. */
+  expense_date: string;
+  /**
+   * 'manual' is anything the owner typed in. 'wages' is the one line the
+   * waiter-wages step writes — it is upserted per session rather than
+   * duplicated on every save, and cannot be edited or deleted from the
+   * ordinary expense list; see SETTING_KEYS.enableWaiterWages.
+   */
+  source: 'manual' | 'wages';
+  created_at: string;
+}
+
+/**
+ * One waiter's wage for one pay event — the row the owner reviews, edits
+ * and saves at day close.
+ *
+ * `amount` is what was actually saved, which is the number that counts even
+ * when it differs from the waiter's own `wage_rate` default (someone didn't
+ * turn up, or was paid something else that day). See SETTING_KEYS.enableWaiterWages.
+ */
+export interface WaiterWageEntry {
+  waiter_id: number;
+  waiter_name: string;
+  amount: number;
+  /**
+   * Present on the draft (pre-save) list and on a saved session's record, so
+   * the review — and later the report — can show WHY this waiter appeared:
+   * "Ali — Weekly". Absent only on very old rows saved before this existed.
+   */
+  pay_type?: WaiterPayType;
 }
 
 /**
@@ -544,6 +719,14 @@ export interface SalesByType {
   delivery_charge: number;
 }
 
+/** Per-waiter totals — only meaningful once "Enable waiters" is switched on. */
+export interface SalesByWaiter {
+  waiter_id: number | null;
+  waiter_name: string;
+  order_count: number;
+  sales: number;
+}
+
 export interface BestSeller {
   menu_item_id: number | null;
   item_name: string;
@@ -598,6 +781,8 @@ export const SETTING_KEYS = {
   printerKitchen: 'printer_kitchen',
   enableTables: 'enable_tables',
   enableKitchenPrint: 'enable_kitchen_print',
+  /** Off by default. On, a takeaway order must name a waiter before it opens. */
+  enableWaiters: 'enable_waiters',
   serviceChargePercent: 'service_charge_percent',
   currencySymbol: 'currency_symbol',
   /** Hashed. Blank means voids are open — see spec §4. */
@@ -639,6 +824,16 @@ export const SETTING_KEYS = {
   themeArtOpacity: 'theme_art_opacity',
   /** How much page colour veils the artwork on the working screens, 0-100. */
   themeArtVeil: 'theme_art_veil',
+
+  /* ---- Optional features, each OFF by default and invisible while off ---- */
+  /** On, a menu item can be marked "sold by weight" and priced per unit. */
+  enableWeightItems: 'enable_weight_items',
+  /** On, the charge step can take an advance instead of the full amount. */
+  enablePartialPayments: 'enable_partial_payments',
+  /** On, the admin portal grows an Expenses section. */
+  enableDailyExpenses: 'enable_daily_expenses',
+  /** On, day close grows a per-waiter wages review that posts into expenses. */
+  enableWaiterWages: 'enable_waiter_wages',
 } as const;
 
 export const DEFAULT_SETTINGS: SettingsMap = {
@@ -649,6 +844,7 @@ export const DEFAULT_SETTINGS: SettingsMap = {
   [SETTING_KEYS.printerKitchen]: '',
   [SETTING_KEYS.enableTables]: '1',
   [SETTING_KEYS.enableKitchenPrint]: '1',
+  [SETTING_KEYS.enableWaiters]: '0',
   [SETTING_KEYS.serviceChargePercent]: '0',
   [SETTING_KEYS.currencySymbol]: 'Rs.',
   [SETTING_KEYS.managerPin]: '',
@@ -665,6 +861,12 @@ export const DEFAULT_SETTINGS: SettingsMap = {
   [SETTING_KEYS.themeArt]: '',
   [SETTING_KEYS.themeArtOpacity]: '30',
   [SETTING_KEYS.themeArtVeil]: '90',
+
+  // All four OFF — a shop that never visits Settings sees no change at all.
+  [SETTING_KEYS.enableWeightItems]: '0',
+  [SETTING_KEYS.enablePartialPayments]: '0',
+  [SETTING_KEYS.enableDailyExpenses]: '0',
+  [SETTING_KEYS.enableWaiterWages]: '0',
 };
 
 /** Labels live here so the whole app names an order type the same way. */

@@ -3,6 +3,7 @@ import { registerBackupHandlers } from './backup';
 import { registerDealHandlers } from './deals';
 import { registerCustomerHandlers } from './customers';
 import { registerDayHandlers } from './day';
+import { registerExpenseHandlers } from './expenses';
 import { registerExtraHandlers } from './extras';
 import { registerImageHandlers } from './images';
 import { registerLicenseHandlers } from './license';
@@ -12,6 +13,7 @@ import { registerReportHandlers } from './reports';
 import { registerSettingsHandlers } from './settings';
 import { registerStaffHandlers } from './staff';
 import { registerTableHandlers } from './tables';
+import { registerWaiterHandlers } from './waiters';
 
 /** Every channel the renderer can reach, registered once at startup. */
 export function registerIpcHandlers(): void {
@@ -19,6 +21,7 @@ export function registerIpcHandlers(): void {
   registerAdminHandlers();
   registerSettingsHandlers();
   registerStaffHandlers();
+  registerWaiterHandlers();
   registerMenuHandlers();
   registerDealHandlers();
   registerImageHandlers();
@@ -28,5 +31,6 @@ export function registerIpcHandlers(): void {
   registerTableHandlers();
   registerOrderHandlers();
   registerReportHandlers();
+  registerExpenseHandlers();
   registerBackupHandlers();
 }

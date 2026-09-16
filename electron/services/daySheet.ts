@@ -65,7 +65,13 @@ function rowItems(order: Order): number {
 }
 
 function statusLabel(order: Order): string {
-  if (order.status === 'settled') return order.payment_method === 'card' ? 'Card' : 'Cash';
+  if (order.status === 'settled') {
+    const method = order.payment_method === 'card' ? 'Card' : 'Cash';
+    // Zero on every order unless "Enable partial payments" is on — see
+    // settleOrder(). Flagged here so the sheet does not read as fully banked
+    // when part of it is still owed.
+    return order.balance_due > 0 ? `${method} · partial` : method;
+  }
   if (order.status === 'void') return 'Cancelled';
   return 'UNPAID';
 }
@@ -126,6 +132,25 @@ export function buildDaySheetHtml(report: DayReport, orders: Order[]): string {
       'Still unpaid',
       `${report.unpaid_count} · ${moneyText(report.unpaid_total, symbol)}`,
     ]);
+  }
+  // Distinct from "still unpaid" above — these orders WERE charged, just not
+  // in full. Zero on a shop that has never turned partial payments on.
+  if (report.partial_count) {
+    summary.push([
+      'Partially paid — balance owed',
+      `${report.partial_count} · ${moneyText(report.partial_balance_total, symbol)}`,
+    ]);
+  }
+  // Empty on a shop that has never turned expenses or waiter wages on.
+  if (report.expenses.length) {
+    summary.push(['Total expenses', moneyText(report.expenses_total, symbol)]);
+    if (report.waiter_wages.length) {
+      summary.push(['  of which waiter wages', moneyText(report.waiter_wages_total, symbol)]);
+    }
+    if (report.net_cash_position !== null) {
+      // Deliberately not called profit — see DayReport.net_cash_position.
+      summary.push(['Net cash position (cash − expenses)', moneyText(report.net_cash_position, symbol)]);
+    }
   }
 
   return `<!doctype html>
@@ -305,6 +330,7 @@ export async function saveDaySheetPdf(report: DayReport, orders: Order[]): Promi
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
   });
   if (chosen.canceled || !chosen.filePath) return { ok: false };
+  const filePath = chosen.filePath;
 
   try {
     return await withSheet(buildDaySheetHtml(report, orders), async (win) => {
@@ -313,8 +339,8 @@ export async function saveDaySheetPdf(report: DayReport, orders: Order[]): Promi
         printBackground: true,
         margins: { marginType: 'default' },
       });
-      fs.writeFileSync(chosen.filePath, pdf);
-      return { ok: true, path: chosen.filePath };
+      fs.writeFileSync(filePath, pdf);
+      return { ok: true, path: filePath };
     });
   } catch (error) {
     return { ok: false, warning: `Could not save the sheet: ${describe(error)}` };

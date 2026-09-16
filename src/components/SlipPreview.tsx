@@ -61,13 +61,26 @@ export function SlipPreview({
             <span>Dine-in · T3</span>
           </div>
           <div className="slip-preview-rule">{'-'.repeat(42)}</div>
-          <div className="slip-preview-row">
-            <span>1 x Chicken Tikka (Large)</span>
-            <span>Rs.1499.00</span>
+          {/* The four columns the printed bill uses: what it was, what ONE
+              costs, how many, and what they come to. */}
+          <div className="slip-preview-items">
+            <span>Item</span>
+            <span>Price</span>
+            <span>Qty</span>
+            <span>Amount</span>
           </div>
-          <div className="slip-preview-row">
-            <span>2 x Zinger Burger</span>
-            <span>Rs.700.00</span>
+          <div className="slip-preview-rule">{'-'.repeat(42)}</div>
+          <div className="slip-preview-items">
+            <span>Chicken Tikka (Large)</span>
+            <span>1499.00</span>
+            <span>1</span>
+            <span>1499.00</span>
+          </div>
+          <div className="slip-preview-items">
+            <span>Zinger Burger</span>
+            <span>350.00</span>
+            <span>2</span>
+            <span>700.00</span>
           </div>
           <div className="slip-preview-rule">{'='.repeat(42)}</div>
           <div className="slip-preview-row slip-preview-total">

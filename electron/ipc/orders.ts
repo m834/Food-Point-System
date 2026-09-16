@@ -18,6 +18,7 @@ import {
   listUnpaidOrders,
   listOrders,
   openOrder,
+  recordBalancePayment,
   setDelivery,
   setExtraOnOrder,
   setItemQty,
@@ -76,6 +77,9 @@ export function registerOrderHandlers(): void {
         raw.delivery_charge === undefined
           ? undefined
           : asMoney(raw.delivery_charge, 'Delivery charge'),
+      // Only meaningful for a takeaway; the repository ignores it otherwise
+      // and enforces that one is actually chosen when waiters are enabled.
+      waiter_id: raw.waiter_id ? asId(raw.waiter_id, 'Waiter') : null,
     });
   });
 
@@ -170,6 +174,23 @@ export function registerOrderHandlers(): void {
     // the main process, so the UI cannot bill a percentage the owner never set.
     const order = settleOrder(asId(orderId, 'Order'), {
       discount: raw.discount === undefined ? 0 : asMoney(raw.discount, 'Discount'),
+      payment_method: asEnum(raw.payment_method, PAYMENT_METHODS, 'Payment method'),
+      // Only ever honoured as less than the total while partial payments are
+      // on — settleOrder() itself is the gate, not this parse.
+      amount_paid: raw.amount_paid === undefined ? undefined : asMoney(raw.amount_paid, 'Amount received'),
+    });
+    const print = await printCustomerBill(order);
+    return { order, print };
+  });
+
+  /**
+   * Collect the rest of what a partially-paid order owes. Only reachable when
+   * partial payments are on — recordBalancePayment() is the actual gate.
+   */
+  handle('orders:settleBalance', async (_e, orderId, input) => {
+    const raw = (input ?? {}) as Record<string, unknown>;
+    const order = recordBalancePayment(asId(orderId, 'Order'), {
+      amount: asMoney(raw.amount, 'Amount received'),
       payment_method: asEnum(raw.payment_method, PAYMENT_METHODS, 'Payment method'),
     });
     const print = await printCustomerBill(order);

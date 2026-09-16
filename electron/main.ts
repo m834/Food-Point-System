@@ -58,63 +58,72 @@ const MIME: Record<string, string> = {
  * Serving the UI over a custom scheme rather than file:// keeps absolute asset
  * paths (/_next/...) working and gives the renderer a real origin, so it can be
  * locked down with a Content-Security-Policy.
+ *
+ * Built on `registerBufferProtocol` rather than the newer `protocol.handle`
+ * (Web-standard Request/Response) — `protocol.handle` only exists from
+ * Electron 25 onward, and this app is pinned to Electron 22 so it still runs
+ * on Windows 8.1, whose Chromium support Electron dropped after that line.
+ * `registerBufferProtocol`'s callback has no HTTP status codes, only a Buffer
+ * response or a net error number; -6 is `net::ERR_FILE_NOT_FOUND`, the closest
+ * equivalent to the 404 this used to return.
  */
 function registerAppProtocol(): void {
-  protocol.handle('app', async (request) => {
-    const url = new URL(request.url);
-    let pathname = decodeURIComponent(url.pathname);
+  protocol.registerBufferProtocol('app', (request, callback) => {
+    void (async () => {
+      const url = new URL(request.url);
+      let pathname = decodeURIComponent(url.pathname);
 
-    /**
-     * Photos live in <userData>/images/, outside the exported UI, so they get
-     * their own route. resolveImage() rejects any name that is not a plain
-     * filename with an image extension inside that folder, which is what keeps
-     * this from becoming a read-anything hole in an otherwise sealed scheme.
-     */
-    if (pathname.startsWith('/media/')) {
-      // /media/<kind>/<filename> — the kind selects the upload subfolder.
-      const [kind, ...rest] = pathname.slice('/media/'.length).split('/');
-      const file = resolveImage(kind, rest.join('/'));
-      if (!file) return new Response('Not found', { status: 404 });
+      /**
+       * Photos live in <userData>/images/, outside the exported UI, so they get
+       * their own route. resolveImage() rejects any name that is not a plain
+       * filename with an image extension inside that folder, which is what keeps
+       * this from becoming a read-anything hole in an otherwise sealed scheme.
+       */
+      if (pathname.startsWith('/media/')) {
+        // /media/<kind>/<filename> — the kind selects the upload subfolder.
+        const [kind, ...rest] = pathname.slice('/media/'.length).split('/');
+        const file = resolveImage(kind, rest.join('/'));
+        if (!file) return callback({ error: -6 });
+        try {
+          const data = await fs.promises.readFile(file);
+          callback({
+            data,
+            mimeType: MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
+            headers: { 'Cache-Control': 'no-cache' },
+          });
+        } catch {
+          callback({ error: -6 });
+        }
+        return;
+      }
+
+      if (pathname.endsWith('/')) pathname += 'index.html';
+      if (!path.extname(pathname)) pathname += '/index.html';
+
+      const filePath = path.join(UI_ROOT, pathname);
+
+      // Never serve anything outside the exported UI folder.
+      if (!filePath.startsWith(UI_ROOT)) {
+        return callback({ error: -6 });
+      }
+
       try {
-        const body = await fs.promises.readFile(file);
-        return new Response(body, {
-          status: 200,
+        const data = await fs.promises.readFile(filePath);
+        callback({
+          data,
+          mimeType: MIME[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
           headers: {
-            'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
-            'Cache-Control': 'no-cache',
+            // No CDNs, no remote anything — the app is offline by design.
+            'Content-Security-Policy':
+              "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+              "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; " +
+              "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
           },
         });
       } catch {
-        return new Response('Not found', { status: 404 });
+        callback({ error: -6 });
       }
-    }
-
-    if (pathname.endsWith('/')) pathname += 'index.html';
-    if (!path.extname(pathname)) pathname += '/index.html';
-
-    const filePath = path.join(UI_ROOT, pathname);
-
-    // Never serve anything outside the exported UI folder.
-    if (!filePath.startsWith(UI_ROOT)) {
-      return new Response('Not found', { status: 404 });
-    }
-
-    try {
-      const body = await fs.promises.readFile(filePath);
-      return new Response(body, {
-        status: 200,
-        headers: {
-          'Content-Type': MIME[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
-          // No CDNs, no remote anything — the app is offline by design.
-          'Content-Security-Policy':
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-            "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; " +
-            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-        },
-      });
-    } catch {
-      return new Response('Not found', { status: 404 });
-    }
+    })();
   });
 }
 

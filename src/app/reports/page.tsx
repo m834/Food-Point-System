@@ -14,6 +14,7 @@ import {
   type RangeTotals,
   type SalesByHour,
   type SalesByType,
+  type SalesByWaiter,
   type VoidRecord,
 } from '../../../shared/types';
 
@@ -32,6 +33,7 @@ export default function ReportsPage() {
 
   const [totals, setTotals] = useState<RangeTotals | null>(null);
   const [byType, setByType] = useState<SalesByType[]>([]);
+  const [byWaiter, setByWaiter] = useState<SalesByWaiter[]>([]);
   const [sellers, setSellers] = useState<BestSeller[]>([]);
   const [byHour, setByHour] = useState<SalesByHour[]>([]);
   const [voidList, setVoidList] = useState<VoidRecord[]>([]);
@@ -39,15 +41,17 @@ export default function ReportsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, types, best, hours, vs] = await Promise.all([
+      const [t, types, waiterRows, best, hours, vs] = await Promise.all([
         api.reports.range(from, to),
         api.reports.byType(from, to),
+        api.reports.byWaiter(from, to),
         api.reports.bestSellers(from, to, 15),
         api.reports.byHour(from, to),
         api.reports.voids(from, to),
       ]);
       setTotals(t);
       setByType(types);
+      setByWaiter(waiterRows);
       setSellers(best);
       setByHour(hours);
       setVoidList(vs);
@@ -166,6 +170,35 @@ export default function ReportsPage() {
               </table>
             </div>
           </Card>
+
+          {/* --- by waiter: empty on a shop that has never turned this on --- */}
+          {byWaiter.length ? (
+            <Card pad={false}>
+              <div className="card-head">
+                <h2>{strings.reports.byWaiter}</h2>
+              </div>
+              <div className="table-scroll">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>{strings.order.waiter}</th>
+                      <th className="right">{strings.reports.orders}</th>
+                      <th className="right">{strings.reports.sales}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byWaiter.map((row) => (
+                      <tr key={row.waiter_id ?? row.waiter_name}>
+                        <td>{row.waiter_name}</td>
+                        <td className="right num">{row.order_count}</td>
+                        <td className="right num">{money(row.sales)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ) : null}
 
           {/* --- sales by hour: the staffing view --- */}
           <Card>

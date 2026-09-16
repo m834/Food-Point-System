@@ -6,7 +6,7 @@ import { useApp } from '@/components/AppContext';
 import { Card, Field, Modal, Notice } from '@/components/ui';
 import { ImagePicker } from '@/components/ImagePicker';
 import { AppearanceSettings } from '@/components/AppearanceSettings';
-import { BRANDING_ENABLED } from '@/lib/branding';
+import { APPEARANCE_EDITOR } from '@/lib/branding';
 import { SlipPreview } from '@/components/SlipPreview';
 import { StaffManager } from '@/components/StaffManager';
 import { ExtrasManager } from '@/components/ExtrasManager';
@@ -195,10 +195,12 @@ export default function SettingsPage() {
           </div>
         </Card>
 
-        {/* --- the client's own brand. A simple build has no such card, and
-                BRANDING_ENABLED is a build-time literal, so this whole branch
-                is dropped from that bundle. --- */}
-        {BRANDING_ENABLED ? (
+        {/* --- the client's own brand. Hidden in a shipped app: the colours
+                are agreed once and travel with the database, not adjusted at
+                the counter. APPEARANCE_EDITOR is a build-time literal, so the
+                card cannot be reached by any route the counter has — see
+                src/lib/branding.ts for how a build turns it back on. --- */}
+        {APPEARANCE_EDITOR ? (
           <Card>
             <h2 style={{ marginBottom: 4 }}>{strings.appearance.title}</h2>
             <AppearanceSettings values={values} set={set} />
@@ -289,6 +291,95 @@ export default function SettingsPage() {
           </label>
           <div className="tiny muted" style={{ marginTop: 6 }}>
             {strings.settings.enableTablesHint}
+          </div>
+        </Card>
+
+        {/* --- waiters: OFF by default. On, a takeaway order screen shows the
+                waiter dropdown and requires a choice before it can start; the
+                roster itself lives on its own admin screen. --- */}
+        <Card>
+          <h2 style={{ marginBottom: 14 }}>{strings.settings.waiters}</h2>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={values[SETTING_KEYS.enableWaiters] === '1'}
+              onChange={(event) => set(SETTING_KEYS.enableWaiters, event.target.checked ? '1' : '0')}
+            />
+            {strings.settings.enableWaiters}
+          </label>
+          <div className="tiny muted" style={{ marginTop: 6 }}>
+            {strings.settings.enableWaitersHint}
+          </div>
+        </Card>
+
+        {/* --- optional features: each off by default, and invisible while
+                off — see Food_Point README for what each one turns on --- */}
+        <Card>
+          <h2 style={{ marginBottom: 4 }}>{strings.settings.optionalFeatures}</h2>
+          <div className="grid" style={{ gap: 14, marginTop: 10 }}>
+            <div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={values[SETTING_KEYS.enableWeightItems] === '1'}
+                  onChange={(event) =>
+                    set(SETTING_KEYS.enableWeightItems, event.target.checked ? '1' : '0')
+                  }
+                />
+                {strings.settings.enableWeightItems}
+              </label>
+              <div className="tiny muted" style={{ marginTop: 6 }}>
+                {strings.settings.enableWeightItemsHint}
+              </div>
+            </div>
+
+            <div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={values[SETTING_KEYS.enablePartialPayments] === '1'}
+                  onChange={(event) =>
+                    set(SETTING_KEYS.enablePartialPayments, event.target.checked ? '1' : '0')
+                  }
+                />
+                {strings.settings.enablePartialPayments}
+              </label>
+              <div className="tiny muted" style={{ marginTop: 6 }}>
+                {strings.settings.enablePartialPaymentsHint}
+              </div>
+            </div>
+
+            <div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={values[SETTING_KEYS.enableDailyExpenses] === '1'}
+                  onChange={(event) =>
+                    set(SETTING_KEYS.enableDailyExpenses, event.target.checked ? '1' : '0')
+                  }
+                />
+                {strings.settings.enableDailyExpenses}
+              </label>
+              <div className="tiny muted" style={{ marginTop: 6 }}>
+                {strings.settings.enableDailyExpensesHint}
+              </div>
+            </div>
+
+            <div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={values[SETTING_KEYS.enableWaiterWages] === '1'}
+                  onChange={(event) =>
+                    set(SETTING_KEYS.enableWaiterWages, event.target.checked ? '1' : '0')
+                  }
+                />
+                {strings.settings.enableWaiterWages}
+              </label>
+              <div className="tiny muted" style={{ marginTop: 6 }}>
+                {strings.settings.enableWaiterWagesHint}
+              </div>
+            </div>
           </div>
         </Card>
 

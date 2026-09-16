@@ -116,6 +116,26 @@ export function kitchenPrintEnabled(): boolean {
   return getBoolSetting(SETTING_KEYS.enableKitchenPrint, true);
 }
 
+export function waitersEnabled(): boolean {
+  return getBoolSetting(SETTING_KEYS.enableWaiters, false);
+}
+
+export function weightItemsEnabled(): boolean {
+  return getBoolSetting(SETTING_KEYS.enableWeightItems, false);
+}
+
+export function partialPaymentsEnabled(): boolean {
+  return getBoolSetting(SETTING_KEYS.enablePartialPayments, false);
+}
+
+export function dailyExpensesEnabled(): boolean {
+  return getBoolSetting(SETTING_KEYS.enableDailyExpenses, false);
+}
+
+export function waiterWagesEnabled(): boolean {
+  return getBoolSetting(SETTING_KEYS.enableWaiterWages, false);
+}
+
 export function currencySymbol(): string {
   return getSetting(SETTING_KEYS.currencySymbol) || 'Rs.';
 }

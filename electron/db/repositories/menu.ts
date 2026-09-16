@@ -55,7 +55,7 @@ export function removeCategory(id: number): void {
 const ITEM_SELECT = `
   SELECT i.id, i.name, i.category_id, c.name AS category_name,
          i.sale_price, i.cost_price, i.is_available, i.barcode,
-         i.sort_order, i.notes, i.image_file
+         i.sort_order, i.notes, i.image_file, i.sold_by_weight, i.unit_label
   FROM menu_items i
   LEFT JOIN menu_categories c ON c.id = i.category_id
 `;
@@ -152,6 +152,10 @@ export interface ItemInput {
   notes: string | null;
   /** Filename in <userData>/images/. Undefined leaves the current one alone. */
   image_file?: string | null;
+  /** Sold by weight/bulk — `sale_price` is then the PER-UNIT price. */
+  sold_by_weight?: boolean;
+  /** Unit for a weight-based item, e.g. "kg". Ignored when not sold by weight. */
+  unit_label?: string | null;
   /** Modifier groups to attach. Replaces whatever was attached before. */
   modifier_group_ids?: number[];
   /**
@@ -167,12 +171,18 @@ export function saveItem(input: ItemInput): MenuItem {
   const run = db.transaction(() => {
     let id = input.id ?? 0;
 
+    // Never both: a weight item's unit is meaningless the moment the toggle
+    // is off, so the column is cleared rather than left stale.
+    const soldByWeight = input.sold_by_weight ? 1 : 0;
+    const unitLabel = soldByWeight ? input.unit_label || null : null;
+
     if (id) {
       db.prepare(
         `UPDATE menu_items
             SET name = ?, category_id = ?, sale_price = ?, cost_price = ?,
                 is_available = ?, barcode = ?, sort_order = ?, notes = ?,
-                image_file = COALESCE(?, image_file)
+                image_file = COALESCE(?, image_file),
+                sold_by_weight = ?, unit_label = ?
           WHERE id = ?`,
       ).run(
         input.name,
@@ -184,6 +194,8 @@ export function saveItem(input: ItemInput): MenuItem {
         input.sort_order,
         input.notes || null,
         input.image_file === undefined ? null : input.image_file,
+        soldByWeight,
+        unitLabel,
         id,
       );
     } else {
@@ -191,8 +203,8 @@ export function saveItem(input: ItemInput): MenuItem {
         .prepare(
           `INSERT INTO menu_items
              (name, category_id, sale_price, cost_price, is_available, barcode,
-              sort_order, notes, image_file)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              sort_order, notes, image_file, sold_by_weight, unit_label)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.name,
@@ -204,6 +216,8 @@ export function saveItem(input: ItemInput): MenuItem {
           input.sort_order,
           input.notes || null,
           input.image_file ?? null,
+          soldByWeight,
+          unitLabel,
         );
       id = Number(info.lastInsertRowid);
     }
