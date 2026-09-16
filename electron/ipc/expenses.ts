@@ -1,15 +1,18 @@
 import { handle, asArray, asId, asMoney, asString } from './util';
 import {
   listCurrentExpenses,
+  recurringExpenseDraft,
   removeExpense,
   saveExpense,
+  saveRecurringExpensePostings,
   saveWaiterWages,
   waiterWagesDraft,
 } from '../db/repositories/expenses';
 import { requireAdmin } from '../services/adminSession';
 
 /**
- * Daily expenses and the waiter-wages review that posts into them.
+ * Daily expenses, and the two reviews that post into them: waiter wages and
+ * recurring expenses.
  *
  * Every channel here is owner-only — counter staff must never reach either
  * screen, so `requireAdmin()` runs first on all of them, exactly like the
@@ -52,5 +55,22 @@ export function registerExpenseHandlers(): void {
       };
     });
     return saveWaiterWages(list);
+  });
+
+  handle('recurringExpenses:draft', () => {
+    requireAdmin();
+    return recurringExpenseDraft();
+  });
+
+  handle('recurringExpenses:post', (_e, entries) => {
+    requireAdmin();
+    const list = asArray(entries, 'Recurring expenses', 200).map((entry) => {
+      const e = (entry ?? {}) as Record<string, unknown>;
+      return {
+        recurring_expense_id: asId(e.recurring_expense_id, 'Recurring expense'),
+        amount: asMoney(e.amount, 'Amount'),
+      };
+    });
+    return saveRecurringExpensePostings(list);
   });
 }

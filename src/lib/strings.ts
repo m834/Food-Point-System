@@ -136,6 +136,7 @@ export const strings = {
     deleteConfirm: 'Delete this expense?',
     deleted: 'Expense deleted.',
     wagesLineNote: 'Posted automatically from the waiter wages review below — edit it there.',
+    recurringLineNote: 'Posted automatically from the recurring-expenses review below — edit it there.',
     disabledNote: 'Both expense toggles are off in Settings, so nothing has ever been recorded here.',
   },
 
@@ -154,6 +155,38 @@ export const strings = {
     noWaitersTitle: 'No active waiters',
     noWaitersNote: 'Add waiters in Admin → Waiters to pay them here.',
     disabledNote: '"Enable waiter wages" is off in Settings.',
+  },
+
+  recurringExpenses: {
+    title: 'Recurring expenses',
+    subtitle:
+      'Rent, a subscription — anything paid on a standing schedule instead of typed in fresh each time.',
+    addRecurring: 'Add recurring',
+    editRecurring: 'Edit recurring expense',
+    description: 'Description',
+    descriptionPlaceholder: 'e.g. Rent',
+    amount: 'Amount',
+    payType: 'Paid',
+    payday: 'Payday',
+    paydayHint: 'Which day of the month this is due.',
+    active: 'Active',
+    inactive: 'Paused',
+    emptyTitle: 'No recurring expenses set up',
+    emptyNote: 'Add rent, a subscription, or anything else paid on a schedule.',
+    deleteConfirm: 'Delete this recurring expense? Past postings keep their own record.',
+    deleted: 'Recurring expense deleted.',
+    save: 'Save',
+    dueTitle: 'Recurring expenses due today',
+    dueSubtitle:
+      "Daily ones every time, monthly ones only on their payday. Pre-filled from each definition's amount — review and post.",
+    post: 'Post expenses',
+    posted: 'Recurring expenses posted.',
+    postedNote: 'Each posts as its own line in Expenses above.',
+    dueEmptyTitle: 'Nothing due today',
+    dueEmptyNote:
+      'A daily recurring expense would appear here every time; a monthly one appears only on its payday.',
+    noneDefinedTitle: 'No recurring expenses set up',
+    noneDefinedNote: 'Add one below to have it appear here automatically on its due date.',
   },
 
   admin: {

@@ -3,10 +3,13 @@ import { money, nowIso, todayIso } from '../money';
 import { businessDate } from '../businessDate';
 import { currentSessionId } from './daySessions';
 import { listWaiters } from './waiters';
+import { listRecurringExpenses } from './recurringExpenses';
 import {
   WAITER_PAY_TYPES,
   WAITER_PAY_TYPE_LABELS,
   type Expense,
+  type RecurringExpense,
+  type RecurringExpenseEntry,
   type Waiter,
   type WaiterPayType,
   type WaiterWageEntry,
@@ -120,9 +123,10 @@ export interface ExpenseInput {
 }
 
 /**
- * Add or edit a MANUAL expense. Never touches the 'wages' line — that one is
- * owned entirely by `saveWaiterWages`, so an edit here on that row is refused
- * rather than silently corrupting the total it stands for.
+ * Add or edit a MANUAL expense. Never touches a 'wages' or 'recurring'
+ * line — those are owned entirely by `saveWaiterWages` / `saveRecurringExpensePostings`,
+ * so an edit here on either is refused rather than silently corrupting the
+ * total it stands for.
  */
 export function saveExpense(input: ExpenseInput): Expense {
   const db = getDb();
@@ -131,7 +135,7 @@ export function saveExpense(input: ExpenseInput): Expense {
     const existing = getExpense(input.id);
     if (!existing) throw new Error('That expense no longer exists.');
     if (existing.source !== 'manual') {
-      throw new Error('Waiter wages are edited from the wages review, not here.');
+      throw new Error(sourceGuardMessage(existing.source));
     }
     db.prepare('UPDATE expenses SET description = ?, amount = ? WHERE id = ?').run(
       input.description,
@@ -150,12 +154,19 @@ export function saveExpense(input: ExpenseInput): Expense {
   return getExpense(Number(info.lastInsertRowid))!;
 }
 
+/** Which review owns a non-manual line, for a message that names the right screen. */
+function sourceGuardMessage(source: Expense['source']): string {
+  return source === 'wages'
+    ? 'Waiter wages are edited from the wages review, not here.'
+    : 'Recurring expenses are edited from the recurring-expenses review, not here.';
+}
+
 /** Confirmed by the caller (the UI asks) before this is ever reached. */
 export function removeExpense(id: number): void {
   const existing = getExpense(id);
   if (!existing) return;
   if (existing.source !== 'manual') {
-    throw new Error('Waiter wages are edited from the wages review, not here.');
+    throw new Error(sourceGuardMessage(existing.source));
   }
   getDb().prepare('DELETE FROM expenses WHERE id = ?').run(id);
 }
@@ -341,4 +352,148 @@ export function saveWaiterWages(
 
   const { saved, expenseIds } = run();
   return { wages: saved, expenses: expenseIds.map((id) => getExpense(id)!).filter(Boolean) };
+}
+
+/* ------------------------------------------------------------------ *
+ * Recurring expenses — a review that posts into the ledger above
+ * ------------------------------------------------------------------ */
+
+/**
+ * Whether `item` is due for review on `date`. Mirrors `isDueOn` for waiters,
+ * minus the 'weekly' case — a recurring expense only ever runs daily or
+ * monthly (see RECURRING_EXPENSE_PAY_TYPES). Reuses the same "clamp to the
+ * last day of a short month" rule so a payday of 31 is never silently
+ * skipped in February.
+ */
+function isRecurringDueOn(item: RecurringExpense, date: Date): boolean {
+  if (item.pay_type === 'daily') return true;
+  if (item.payday === null || item.payday === undefined) return false;
+  const effective = Math.min(item.payday, daysInMonth(date));
+  return date.getDate() === effective;
+}
+
+/**
+ * What the owner sees on opening the recurring-expenses review: only the
+ * definitions actually due today, each showing whatever was already posted
+ * for the CURRENT occurrence where that exists, otherwise the definition's
+ * own default amount. Mirrors `waiterWagesDraft` exactly, including why: the
+ * NEXT occurrence always starts fresh from the definition's default, never
+ * from a past override, because that is a different pay event.
+ */
+export function recurringExpenseDraft(): RecurringExpenseEntry[] {
+  const today = new Date();
+  const items = listRecurringExpenses(true).filter((item) => isRecurringDueOn(item, today));
+  if (!items.length) return [];
+
+  const sessionId = currentSessionId();
+  const date = todayIso();
+  const saved = (
+    sessionId
+      ? getDb()
+          .prepare('SELECT recurring_expense_id, amount FROM recurring_expense_postings WHERE session_id = ?')
+          .all(sessionId)
+      : getDb()
+          .prepare(
+            `SELECT recurring_expense_id, amount FROM recurring_expense_postings
+              WHERE session_id IS NULL AND posting_date = ?`,
+          )
+          .all(date)
+  ) as Array<{ recurring_expense_id: number | null; amount: number }>;
+  const savedById = new Map(
+    saved
+      .filter((row) => row.recurring_expense_id !== null)
+      .map((row) => [row.recurring_expense_id as number, row.amount]),
+  );
+
+  return items.map((item) => ({
+    recurring_expense_id: item.id,
+    description: item.description,
+    amount: money(savedById.get(item.id) ?? item.amount),
+    pay_type: item.pay_type,
+  }));
+}
+
+/**
+ * Save the day's recurring expenses in one shot.
+ *
+ * Idempotent, exactly like waiter wages: re-saving the same pay event
+ * REPLACES its rows rather than piling up edits. Only definitions that are
+ * BOTH active and actually due today can post — enforced again here, not
+ * just by what the review offered, so a stale request can never post one on
+ * the wrong day, or divide a monthly amount across the days in between.
+ *
+ * Unlike waiter wages, each recurring expense posts its OWN named ledger
+ * line ("Rent — <date>") rather than being grouped by pay type — these are
+ * distinct, individually-labelled costs, the same way a manual expense is.
+ * A confirmed amount of zero is still recorded as reviewed (so reopening
+ * today's draft shows 0, not the default again) but posts no ledger line —
+ * there is nothing to show for a expense that was waived.
+ */
+export function saveRecurringExpensePostings(
+  entries: Array<{ recurring_expense_id: number; amount: number }>,
+): { postings: RecurringExpenseEntry[]; expenses: Expense[] } {
+  const db = getDb();
+
+  const run = db.transaction(() => {
+    const sessionId = currentSessionId();
+    const date = todayIso();
+    const now = nowIso();
+    const today = new Date();
+
+    if (sessionId) {
+      db.prepare('DELETE FROM recurring_expense_postings WHERE session_id = ?').run(sessionId);
+      db.prepare("DELETE FROM expenses WHERE session_id = ? AND source = 'recurring'").run(sessionId);
+    } else {
+      db.prepare(
+        'DELETE FROM recurring_expense_postings WHERE session_id IS NULL AND posting_date = ?',
+      ).run(date);
+      db.prepare(
+        "DELETE FROM expenses WHERE session_id IS NULL AND expense_date = ? AND source = 'recurring'",
+      ).run(date);
+    }
+
+    const insertPosting = db.prepare(
+      `INSERT INTO recurring_expense_postings
+         (recurring_expense_id, description, amount, session_id, posting_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    const insertExpense = db.prepare(
+      `INSERT INTO expenses (description, amount, session_id, expense_date, source, created_at)
+       VALUES (?, ?, ?, ?, 'recurring', ?)`,
+    );
+
+    const dueById = new Map(
+      listRecurringExpenses(true)
+        .filter((item) => isRecurringDueOn(item, today))
+        .map((item) => [item.id, item]),
+    );
+
+    const postings: RecurringExpenseEntry[] = [];
+    const expenseIds: number[] = [];
+
+    for (const entry of entries) {
+      const item = dueById.get(entry.recurring_expense_id);
+      // An id that is not an active, currently-due definition is skipped
+      // rather than guessed at — the roster and the calendar decide what
+      // can be posted, not whatever the caller happened to send.
+      if (!item) continue;
+      const amount = money(Math.max(entry.amount, 0));
+      insertPosting.run(entry.recurring_expense_id, item.description, amount, sessionId, date, now);
+      postings.push({
+        recurring_expense_id: entry.recurring_expense_id,
+        description: item.description,
+        amount,
+        pay_type: item.pay_type,
+      });
+      if (amount > 0) {
+        const info = insertExpense.run(`${item.description} — ${date}`, amount, sessionId, date, now);
+        expenseIds.push(Number(info.lastInsertRowid));
+      }
+    }
+
+    return { postings, expenseIds };
+  });
+
+  const { postings, expenseIds } = run();
+  return { postings, expenses: expenseIds.map((id) => getExpense(id)!).filter(Boolean) };
 }

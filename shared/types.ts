@@ -409,7 +409,12 @@ export interface DayReport {
    * Money recorded out this session — vegetables, gas, waiter wages. Empty and
    * zero on a shop that has never turned "Enable daily expenses" on.
    */
-  expenses: Array<{ id: number; description: string; amount: number; source: 'manual' | 'wages' }>;
+  expenses: Array<{
+    id: number;
+    description: string;
+    amount: number;
+    source: 'manual' | 'wages' | 'recurring';
+  }>;
   expenses_total: number;
   /**
    * cash_sales - expenses_total. Labelled deliberately as a cash POSITION, not
@@ -571,12 +576,14 @@ export interface Expense {
   /** Always set, so an expense taken with no day open still files somewhere. */
   expense_date: string;
   /**
-   * 'manual' is anything the owner typed in. 'wages' is the one line the
-   * waiter-wages step writes — it is upserted per session rather than
-   * duplicated on every save, and cannot be edited or deleted from the
-   * ordinary expense list; see SETTING_KEYS.enableWaiterWages.
+   * 'manual' is anything the owner typed in there and then. 'wages' is a
+   * line the waiter-wages step writes; 'recurring' is a line posted from a
+   * recurring expense's own review (see RecurringExpense below). Both of the
+   * latter are upserted per pay event rather than duplicated on every save,
+   * and cannot be edited or deleted from the ordinary expense list — only
+   * from the review that owns them.
    */
-  source: 'manual' | 'wages';
+  source: 'manual' | 'wages' | 'recurring';
   created_at: string;
 }
 
@@ -598,6 +605,54 @@ export interface WaiterWageEntry {
    * "Ali — Weekly". Absent only on very old rows saved before this existed.
    */
   pay_type?: WaiterPayType;
+}
+
+/** How often a recurring expense falls due. Decides which reviews it appears on. */
+export const RECURRING_EXPENSE_PAY_TYPES = ['daily', 'monthly'] as const;
+export type RecurringExpensePayType = (typeof RECURRING_EXPENSE_PAY_TYPES)[number];
+
+export const RECURRING_EXPENSE_PAY_TYPE_LABELS: Record<RecurringExpensePayType, string> = {
+  daily: 'Daily',
+  monthly: 'Monthly',
+};
+
+/**
+ * A standing expense the owner defines once — rent, a subscription, a
+ * monthly retainer — rather than retyping it every time it falls due.
+ *
+ * Deliberately NOT posted automatically: it only ever appears on the review
+ * (see RecurringExpenseEntry) for the owner to confirm or edit on its actual
+ * due date, exactly like a waiter's wage. Nothing is ever posted to the
+ * ledger just because this definition exists.
+ */
+export interface RecurringExpense {
+  id: number;
+  description: string;
+  /** The default amount for one occurrence, at `pay_type`'s cadence. */
+  amount: number;
+  pay_type: RecurringExpensePayType;
+  /**
+   * Day of the month (1-31) for 'monthly' — a day past the end of a short
+   * month falls on that month's last day instead, so nothing is silently
+   * skipped in February. Null for 'daily', which has no payday.
+   */
+  payday: number | null;
+  /** Deactivated definitions drop off the review but keep their history. */
+  is_active: number;
+  created_at: string;
+}
+
+/**
+ * One recurring expense's occurrence — the row the owner reviews, edits and
+ * confirms on its due date. `amount` is what was actually posted, which is
+ * the number that counts even when it differs from the definition's own
+ * `amount` (a one-off higher gas bill, say).
+ */
+export interface RecurringExpenseEntry {
+  recurring_expense_id: number;
+  description: string;
+  amount: number;
+  pay_type: RecurringExpensePayType;
 }
 
 /**

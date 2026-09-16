@@ -9,6 +9,7 @@ import { registerImageHandlers } from './images';
 import { registerLicenseHandlers } from './license';
 import { registerMenuHandlers } from './menu';
 import { registerOrderHandlers } from './orders';
+import { registerRecurringExpenseHandlers } from './recurringExpenses';
 import { registerReportHandlers } from './reports';
 import { registerSettingsHandlers } from './settings';
 import { registerStaffHandlers } from './staff';
@@ -32,5 +33,6 @@ export function registerIpcHandlers(): void {
   registerOrderHandlers();
   registerReportHandlers();
   registerExpenseHandlers();
+  registerRecurringExpenseHandlers();
   registerBackupHandlers();
 }

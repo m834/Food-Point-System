@@ -295,9 +295,10 @@ CREATE TABLE IF NOT EXISTS expenses (
   amount       REAL    NOT NULL DEFAULT 0,
   session_id   INTEGER REFERENCES day_sessions(id) ON DELETE SET NULL,
   expense_date TEXT    NOT NULL,
-  -- 'wages' is the one line the waiter-wages step writes, upserted per
-  -- session rather than duplicated on every save — see repositories/expenses.ts.
-  source       TEXT    NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'wages')),
+  -- 'wages' is the line the waiter-wages step writes; 'recurring' is the
+  -- line a recurring expense's review writes. Both are upserted per pay
+  -- event rather than duplicated on every save — see repositories/expenses.ts.
+  source       TEXT    NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'wages', 'recurring')),
   created_at   TEXT    NOT NULL
 );
 
@@ -323,6 +324,42 @@ CREATE TABLE IF NOT EXISTS waiter_wages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_waiter_wages_session ON waiter_wages(session_id);
+
+-- ---- Recurring expenses (rent, subscriptions, anything paid on a standing
+-- cadence rather than typed in fresh each time) ----------------------------
+-- Defined once; never posted automatically. It only ever appears on its own
+-- review, on its actual due date, for the owner to confirm or edit — exactly
+-- the same shape as waiter wages, and for the same reason: an owner must be
+-- able to say "no, not this time" without the app quietly charging it anyway.
+CREATE TABLE IF NOT EXISTS recurring_expenses (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  description TEXT    NOT NULL,
+  amount      REAL    NOT NULL DEFAULT 0,
+  -- 'daily' | 'monthly' — validated as a fixed set at the IPC layer, the
+  -- same way every other fixed-list column in this schema is.
+  pay_type    TEXT    NOT NULL DEFAULT 'daily',
+  -- Day of month (1-31) for 'monthly', unused for 'daily'.
+  payday      INTEGER,
+  is_active   INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT    NOT NULL
+);
+
+-- One row per occurrence actually reviewed and confirmed — mirrors
+-- waiter_wages exactly, including why it exists: re-saving the same pay
+-- event REPLACES its row rather than duplicating it, and the description is
+-- a snapshot so deleting the definition later never rewrites a past posting.
+CREATE TABLE IF NOT EXISTS recurring_expense_postings (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  recurring_expense_id  INTEGER REFERENCES recurring_expenses(id) ON DELETE SET NULL,
+  description           TEXT    NOT NULL,
+  amount                REAL    NOT NULL DEFAULT 0,
+  session_id            INTEGER REFERENCES day_sessions(id) ON DELETE SET NULL,
+  posting_date          TEXT    NOT NULL,
+  created_at            TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_expense_postings_session
+  ON recurring_expense_postings(session_id);
 `;
 
 /**
@@ -525,6 +562,41 @@ export function migrate(): void {
   // before this existed are simply blank), but lets the day report and the
   // review screen both say WHY a waiter was paid that day.
   addColumn('waiter_wages', 'pay_type', 'TEXT');
+
+  /* ---- Recurring expenses --------------------------------------------------
+   * `expenses.source` was created with `CHECK (source IN ('manual', 'wages'))`.
+   * SQLite cannot alter a CHECK constraint in place, so a database that
+   * already has this table needs it rebuilt to widen the list to include
+   * 'recurring' — the one schema change in this file that is not a plain
+   * `ADD COLUMN`. Done the standard, safe way: rename, recreate with the new
+   * constraint, copy every row across untouched, drop the old table. Guarded
+   * on the constraint not already allowing 'recurring', so this runs exactly
+   * once per database and is a no-op on a fresh install, which already gets
+   * the wider constraint straight from SCHEMA above.
+   */
+  const expensesTableSql = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'expenses'")
+    .get() as { sql: string } | undefined;
+  if (expensesTableSql && !expensesTableSql.sql.includes("'recurring'")) {
+    db.exec(`
+      ALTER TABLE expenses RENAME TO expenses_pre_recurring;
+      CREATE TABLE expenses (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        description  TEXT    NOT NULL,
+        amount       REAL    NOT NULL DEFAULT 0,
+        session_id   INTEGER REFERENCES day_sessions(id) ON DELETE SET NULL,
+        expense_date TEXT    NOT NULL,
+        source       TEXT    NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'wages', 'recurring')),
+        created_at   TEXT    NOT NULL
+      );
+      INSERT INTO expenses (id, description, amount, session_id, expense_date, source, created_at)
+        SELECT id, description, amount, session_id, expense_date, source, created_at
+          FROM expenses_pre_recurring;
+      DROP TABLE expenses_pre_recurring;
+      CREATE INDEX IF NOT EXISTS idx_expenses_session ON expenses(session_id);
+      CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
+    `);
+  }
 
   // Seed any setting the build knows about but this database has not seen yet,
   // so a new key added in a later version arrives with a sane default rather

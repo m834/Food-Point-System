@@ -144,6 +144,14 @@ const api = {
     save: (entries: unknown) => ipcRenderer.invoke('wages:save', entries),
   },
 
+  recurringExpenses: {
+    list: () => ipcRenderer.invoke('recurringExpenses:list'),
+    save: (item: unknown) => ipcRenderer.invoke('recurringExpenses:save', item),
+    remove: (id: number) => ipcRenderer.invoke('recurringExpenses:remove', id),
+    draft: () => ipcRenderer.invoke('recurringExpenses:draft'),
+    post: (entries: unknown) => ipcRenderer.invoke('recurringExpenses:post', entries),
+  },
+
   reports: {
     dashboard: (date?: string) => ipcRenderer.invoke('reports:dashboard', date),
     range: (from: string, to: string) => ipcRenderer.invoke('reports:range', { from, to }),

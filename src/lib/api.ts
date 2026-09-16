@@ -20,6 +20,8 @@ import type {
   Order,
   OrderItem,
   RangeTotals,
+  RecurringExpense,
+  RecurringExpenseEntry,
   Result,
   SalesByHour,
   SalesByType,
@@ -268,6 +270,26 @@ export const api = {
     draft: () => call<WaiterWageEntry[]>('wages', 'draft'),
     save: (entries: Array<{ waiter_id: number; amount: number }>) =>
       call<{ wages: WaiterWageEntry[]; expenses: Expense[] }>('wages', 'save', entries),
+  },
+
+  recurringExpenses: {
+    list: () => call<RecurringExpense[]>('recurringExpenses', 'list'),
+    save: (item: {
+      id?: number;
+      description: string;
+      amount: number;
+      pay_type: string;
+      payday: number | null;
+      is_active?: boolean;
+    }) => call<RecurringExpense>('recurringExpenses', 'save', item),
+    remove: (id: number) => call<null>('recurringExpenses', 'remove', id),
+    draft: () => call<RecurringExpenseEntry[]>('recurringExpenses', 'draft'),
+    post: (entries: Array<{ recurring_expense_id: number; amount: number }>) =>
+      call<{ postings: RecurringExpenseEntry[]; expenses: Expense[] }>(
+        'recurringExpenses',
+        'post',
+        entries,
+      ),
   },
 
   reports: {

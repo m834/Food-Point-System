@@ -92,9 +92,24 @@ about food cost or margin, only what should be left in the drawer after
 paying things out of it. (Waiter wages, when that toggle is also on, are
 counted here too — see below.)
 
+**Recurring expenses** — a sub-feature of this same toggle, no separate
+switch. On the Expenses screen, define a standing expense once — rent, a
+subscription — with an amount and a **Daily** or **Monthly** cadence (a
+monthly one also gets a payday; a payday of 31 falls on a shorter month's
+last day instead of being skipped). Nothing is posted automatically: a
+**"Recurring expenses due today"** review offers only what is actually due
+— daily items every time, a monthly item only on its payday — pre-filled
+from the definition's amount. The owner reviews, may edit any amount, then
+**posts**; each confirmed item becomes its own named line in Expenses
+("Rent — \<date>"), dated the day it was actually posted, never spread
+across the days in between. Reopening the same day's review shows what was
+actually posted; the next occurrence always starts fresh from the
+definition's own amount, never from a past override.
+
 **How to turn it on:** Settings → Optional features → *Enable daily
 expenses*. An **Expenses** link appears in the admin sidebar as soon as this
-(or the wages toggle below) is on.
+(or the wages toggle below) is on. Recurring expenses are managed right on
+that screen — no extra setting.
 
 ### Enable waiter wages
 
