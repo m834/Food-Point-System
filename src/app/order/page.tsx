@@ -201,7 +201,7 @@ function OrderWorkspace() {
     return deals.filter((deal) => !term || deal.name.toLowerCase().includes(term));
   }, [deals, activeCategory, term]);
 
-  /** Tapping an item: straight onto the order, unless it has options to pick. */
+  /** Tapping an item always opens the picker, so the quantity is asked every time. */
   const tapItem = async (item: MenuItem) => {
     if (!order) {
       setStartOpen(true);
@@ -210,15 +210,9 @@ function OrderWorkspace() {
     if (!item.is_available) return;
 
     try {
-      const hydrated = await api.menu.getItem(item.id);
-      // Sizes MUST be chosen — the backend refuses a line without one — and
-      // modifiers are offered when the item has them. A weight-based item
-      // always needs the weight typed in, so it opens the same modal too.
-      if (hydrated.variants?.length || hydrated.modifier_groups?.length || hydrated.sold_by_weight) {
-        setModifierItem(hydrated);
-        return;
-      }
-      await addLine(item.id, 1, null, []);
+      // Every item goes through the modal: it asks the quantity (or weight),
+      // and the size / modifiers too when the item has them.
+      setModifierItem(await api.menu.getItem(item.id));
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Could not add that item.', 'error');
     }
@@ -359,7 +353,9 @@ function OrderWorkspace() {
       entries.push(entry);
     }
 
-    return entries;
+    // Newest first: the line just added shows at the top of the panel. Only
+    // the display is flipped — receipts and kitchen tickets keep entry order.
+    return entries.reverse();
   }, [order]);
 
   if (loading) return <div className="empty">{strings.common.loading}</div>;
@@ -1113,7 +1109,9 @@ function ModifierModal({
   const variants = item.variants ?? [];
   const isWeight = Boolean(item.sold_by_weight);
   const [chosen, setChosen] = useState<Record<number, number[]>>({});
-  const [quantity, setQuantity] = useState(1);
+  // Typed as text so the counter can clear the field and key in "12".
+  const [qtyText, setQtyText] = useState('1');
+  const quantity = Math.max(0, Math.floor(Number(qtyText) || 0));
   // A weight is typed, not stepped — free text so "1.5" can be entered
   // digit by digit without the field fighting the cursor.
   const [weightText, setWeightText] = useState('');
@@ -1154,6 +1152,10 @@ function ModifierModal({
   const chosenVariant = variants.find((v) => v.id === variantId) ?? null;
   const unitPrice = chosenVariant ? chosenVariant.sale_price : item.sale_price;
   const effectiveQty = isWeight ? Number(weightText) || 0 : quantity;
+  const canAdd = !(variants.length > 0 && !variantId) && effectiveQty > 0;
+  const submit = () => {
+    if (canAdd) onAdd(effectiveQty, notes || null, selectedIds, variantId);
+  };
 
   return (
     <Modal
@@ -1166,8 +1168,8 @@ function ModifierModal({
           </button>
           <button
             className="btn primary"
-            onClick={() => onAdd(effectiveQty, notes || null, selectedIds, variantId)}
-            disabled={(variants.length > 0 && !variantId) || !(effectiveQty > 0)}
+            onClick={submit}
+            disabled={!canAdd}
           >
             {strings.order.addToOrder} · {money((unitPrice + delta) * effectiveQty)}
           </button>
@@ -1184,6 +1186,7 @@ function ModifierModal({
             inputMode="decimal"
             value={weightText}
             onChange={(event) => setWeightText(event.target.value)}
+            onKeyDown={(event) => event.key === 'Enter' && submit()}
             placeholder={`0 ${item.unit_label || 'kg'}`}
             autoFocus
           />
@@ -1239,13 +1242,29 @@ function ModifierModal({
       </Field>
 
       {isWeight ? null : (
-        <div className="row">
-          <span className="qty-stepper">
-            <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</button>
-            <span>{quantity}</span>
-            <button onClick={() => setQuantity((q) => q + 1)}>+</button>
-          </span>
-        </div>
+        <Field label={strings.order.quantity}>
+          <div className="row" style={{ gap: 8 }}>
+            <span className="qty-stepper">
+              <button onClick={() => setQtyText(String(Math.max(1, quantity - 1)))}>−</button>
+            </span>
+            <input
+              className="input num"
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              value={qtyText}
+              onChange={(event) => setQtyText(event.target.value)}
+              onFocus={(event) => event.target.select()}
+              onKeyDown={(event) => event.key === 'Enter' && submit()}
+              style={{ width: 90, textAlign: 'center' }}
+              autoFocus
+            />
+            <span className="qty-stepper">
+              <button onClick={() => setQtyText(String(quantity + 1))}>+</button>
+            </span>
+          </div>
+        </Field>
       )}
     </Modal>
   );

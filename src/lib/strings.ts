@@ -434,6 +434,7 @@ export const strings = {
     lineNote: 'Note for the kitchen',
     lineNotePlaceholder: 'e.g. less spicy, no onions',
     addToOrder: 'Add to order',
+    quantity: 'Quantity',
     void: 'Void',
     voidLine: 'Void this item',
     voidOrder: 'Void the whole order',

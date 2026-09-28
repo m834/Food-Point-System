@@ -392,6 +392,53 @@ export function openOrder(input: OpenOrderInput): Order {
 }
 
 /**
+ * An existing line on this order that a new add can be folded into: same item,
+ * same size, same add-ons, same kitchen note, same snapshotted price — and
+ * still `new`, i.e. not yet sent to the kitchen. Deal components never match;
+ * they belong to their bundle.
+ *
+ * Add-ons are compared by the snapshotted name and price on the line, since
+ * that is what the bill and the ticket print.
+ */
+function findUnfiredTwin(
+  orderId: number,
+  menuItemId: number,
+  variantId: number | null,
+  notes: string | null,
+  unitPrice: number,
+  unitCost: number,
+  chosen: { name: string; price_delta: number }[],
+): { id: number; qty: number } | undefined {
+  const db = getDb();
+  const candidates = db
+    .prepare(
+      `SELECT id, qty FROM order_items
+        WHERE order_id = ? AND menu_item_id = ? AND variant_id IS ?
+          AND COALESCE(notes, '') = COALESCE(?, '')
+          AND kitchen_status = 'new' AND deal_group IS NULL
+          AND unit_label IS NULL
+          AND sale_price = ? AND cost_price = ?
+        ORDER BY id`,
+    )
+    .all(orderId, menuItemId, variantId, notes, money(unitPrice), money(unitCost)) as {
+    id: number;
+    qty: number;
+  }[];
+
+  const signature = (mods: { name: string; price_delta: number }[]) =>
+    mods
+      .map((mod) => `${mod.name}\u0000${money(mod.price_delta)}`)
+      .sort()
+      .join('\u0001');
+  const wanted = signature(chosen);
+  const modsOf = db.prepare('SELECT name, price_delta FROM order_item_modifiers WHERE order_item_id = ?');
+
+  return candidates.find(
+    (row) => signature(modsOf.all(row.id) as { name: string; price_delta: number }[]) === wanted,
+  );
+}
+
+/**
  * Append lines to an open order. Snapshots price, cost and every chosen
  * modifier onto the row, because tomorrow's menu edit must not rewrite today's
  * bill. Does NOT print — firing is a separate step.
@@ -413,6 +460,7 @@ export function addItems(orderId: number, lines: NewOrderLine[]): Order {
     const insertMod = db.prepare(
       'INSERT INTO order_item_modifiers (order_item_id, name, price_delta) VALUES (?, ?, ?)',
     );
+    const updateItemQty = db.prepare('UPDATE order_items SET qty = ?, line_total = ? WHERE id = ?');
 
     // Read once per call, not once per line — and honoured only while the
     // toggle is on. A stray `sold_by_weight` flag left on an item from when
@@ -477,6 +525,23 @@ export function addItems(orderId: number, lines: NewOrderLine[]): Order {
       const chosen = getModifiersByIds(line.modifier_ids ?? []);
       const delta = chosen.reduce((sum, mod) => sum + mod.price_delta, 0);
       const lineTotal = money(line.qty * (unitPrice + delta));
+
+      /**
+       * The same thing tapped again tops up its existing line instead of
+       * adding a duplicate — but only a line the kitchen has NOT seen yet.
+       * Growing a fired line would mean the extra food never gets a ticket,
+       * so anything already sent gets a fresh line for the new quantity.
+       * Weight items always get their own line: "2 kg" then "1.5 kg" are two
+       * separate weighings, not one.
+       */
+      const twin = isWeightItem
+        ? undefined
+        : findUnfiredTwin(orderId, item.id, variantId, line.notes || null, unitPrice, unitCost, chosen);
+      if (twin) {
+        const qty = twin.qty + line.qty;
+        updateItemQty.run(qty, money(qty * (unitPrice + delta)), twin.id);
+        continue;
+      }
 
       const info = insertItem.run(
         orderId,

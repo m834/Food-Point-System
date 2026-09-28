@@ -3847,6 +3847,81 @@ app.whenReady().then(async () => {
     eq(o.waiter_id, null, 'no waiter required or attached once off again');
   });
 
+  /* ============================================================
+   * 29 — Adding an item that is already on the order
+   * ============================================================ */
+  section('29 — Repeat adds top up the line');
+
+  const live = (order) => order.items.filter((line) => line.kitchen_status !== 'void');
+
+  test('29.1', 'The same item added again ADDS to its line (3 + 2 = 5), no duplicate', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 3, modifier_ids: [] }]);
+    const r = orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
+    eq(live(r).length, 1, 'still one line');
+    eq(r.items[0].qty, 5, 'quantity added, not replaced');
+    eq(r.items[0].line_total, 2000, 'line total follows the new quantity');
+    eq(r.subtotal, 2000, 'subtotal agrees');
+  });
+
+  test('29.2', 'A line already sent to the kitchen is never grown — the extra gets its own line and ticket', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 2, modifier_ids: [] }]);
+    orders.fireToKitchen(o.id);
+    const r = orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    eq(live(r).length, 2, 'a second line for the new quantity');
+    const sent = r.items.find((line) => line.kitchen_status === 'fired');
+    const fresh = r.items.find((line) => line.kitchen_status === 'new');
+    eq(sent.qty, 2, 'the fired line is untouched');
+    eq(fresh.qty, 1, 'the new line carries only the extra');
+    const { fired } = orders.fireToKitchen(o.id);
+    eq(fired.length, 1, 'the next fire sends just the extra');
+    eq(fired[0].qty, 1, 'with only the extra quantity on the ticket');
+  });
+
+  test('29.3', 'Add-ons and kitchen notes must match exactly to merge', () => {
+    const o = orders.openOrder({ type: 'takeaway' });
+    const burger = item['Zinger Burger'];
+    // Fresh add-ons: the ones made at the top do not survive the restore sections.
+    const group = Number(
+      getDb().prepare("INSERT INTO modifier_groups (name, selection_type) VALUES ('Extras 29','multi')").run().lastInsertRowid,
+    );
+    const addMod = (name, delta) =>
+      Number(getDb().prepare('INSERT INTO modifiers (group_id, name, price_delta) VALUES (?,?,?)').run(group, name, delta).lastInsertRowid);
+    const cheese = addMod('Cheese 29', 60);
+    const sauce = addMod('Sauce 29', 20);
+    const first = orders.addItems(o.id, [{ menu_item_id: burger, qty: 1, modifier_ids: [sauce, cheese] }]);
+    const unit = first.items[0].line_total; // earlier sections reprice the burger
+    let r = orders.addItems(o.id, [{ menu_item_id: burger, qty: 2, modifier_ids: [cheese, sauce] }]);
+    eq(live(r).length, 1, 'same add-ons in a different order still merge');
+    eq(r.items[0].qty, 3, 'quantity added');
+    eq(r.items[0].line_total, unit * 3, 'priced with the add-ons: 3 × (burger + cheese)');
+
+    r = orders.addItems(o.id, [{ menu_item_id: burger, qty: 1, modifier_ids: [cheese] }]);
+    eq(live(r).length, 2, 'different add-ons → a separate line');
+
+    orders.addItems(o.id, [{ menu_item_id: item['Chicken Biryani'], qty: 1, modifier_ids: [] }]);
+    r = orders.addItems(o.id, [
+      { menu_item_id: item['Chicken Biryani'], qty: 1, notes: 'less spicy', modifier_ids: [] },
+    ]);
+    eq(live(r).length, 4, 'a different kitchen note → a separate line');
+  });
+
+  test('29.4', 'Weight-based items always get a new line', () => {
+    const water = item['Mineral Water'];
+    settingsRepo.saveSettings({ enable_weight_items: '1' });
+    getDb().prepare("UPDATE menu_items SET sold_by_weight = 1, unit_label = 'kg' WHERE id = ?").run(water);
+    try {
+      const o = orders.openOrder({ type: 'takeaway' });
+      orders.addItems(o.id, [{ menu_item_id: water, qty: 2, modifier_ids: [] }]);
+      const r = orders.addItems(o.id, [{ menu_item_id: water, qty: 1.5, modifier_ids: [] }]);
+      eq(live(r).length, 2, 'two weighings, two lines');
+    } finally {
+      getDb().prepare('UPDATE menu_items SET sold_by_weight = 0, unit_label = NULL WHERE id = ?').run(water);
+      settingsRepo.saveSettings({ enable_weight_items: '0' });
+    }
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   const pad = (s, n) => String(s).padEnd(n);
