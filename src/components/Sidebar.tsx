@@ -11,7 +11,6 @@ import {
   IconDay,
   IconDashboard,
   IconDeal,
-  IconExpense,
   IconMenu,
   IconOrder,
   IconReceipt,
@@ -22,15 +21,12 @@ import {
   IconShield,
   IconSun,
   IconTables,
-  IconWaiter,
 } from './icons';
 
 export function Sidebar() {
   const pathname = usePathname();
   const {
     tablesEnabled,
-    dailyExpensesEnabled,
-    waiterWagesEnabled,
     staff,
     signOut,
     theme,
@@ -62,15 +58,9 @@ export function Sidebar() {
     { href: '/reports/', label: strings.nav.reports, icon: <IconReports /> },
     { href: '/cancellations/', label: strings.nav.cancellations, icon: <IconCancel /> },
     { href: '/customers/', label: strings.nav.customers, icon: <IconCustomers /> },
-    { href: '/waiters/', label: strings.nav.waiters, icon: <IconWaiter /> },
     { href: '/menu/', label: strings.nav.menu, icon: <IconMenu /> },
     { href: '/deals/', label: strings.nav.deals, icon: <IconDeal /> },
     { href: '/day/', label: strings.nav.day, icon: <IconDay /> },
-    // Invisible until the owner turns one of its two toggles on in Settings —
-    // there is nothing behind it to reach beforehand.
-    ...(dailyExpensesEnabled || waiterWagesEnabled
-      ? [{ href: '/expenses/', label: strings.nav.expenses, icon: <IconExpense /> }]
-      : []),
     { href: '/settings/', label: strings.nav.settings, icon: <IconSettings /> },
   ];
 
